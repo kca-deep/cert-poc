@@ -1,0 +1,15 @@
+{
+  "question_number": 2,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "외뷰 업체에",
+      "suspected": "'외뷰'는 '외부'의 자모 오자(ㅠ→ㅠ 아닌 다른 자모 변형)",
+      "suggested": "외부 업체에"
+    }
+  ],
+  "confidence": "high"
+}

@@ -1,0 +1,15 @@
+{
+  "question_number": 8,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "중요한 정보가 훔치거나",
+      "suspected": "'훔치거나'는 '훔치거나' 형태이나 문맥상 '훔쳐지거나' 또는 '도용당하거나' 등으로 수정 필요 — 다만 이는 A10(오타)의 범위를 벗어남",
+      "suggested": null
+    }
+  ],
+  "confidence": "low"
+}

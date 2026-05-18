@@ -1,0 +1,15 @@
+{
+  "question_number": 5,
+  "type_code": "A16",
+  "type_name": "탈자",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_4",
+      "original": "DaS, Danial of Service",
+      "suspected": "'Danial'에서 'e' 글자가 탈락되어 불완전한 영문 단어가 됨",
+      "suggested": "DDoS, Denial of Service"
+    }
+  ],
+  "confidence": "high"
+}

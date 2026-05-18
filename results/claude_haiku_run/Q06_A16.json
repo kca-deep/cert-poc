@@ -1,0 +1,15 @@
+{
+  "question_number": 6,
+  "type_code": "A16",
+  "type_name": "탈자",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "개인용컴퓨터",
+      "suspected": "'개인용컴퓨터'에서 '(PC)' 앞에 공백이 없어 띄어쓰기 오류로 보이지만, 실제로는 '개인용 컴퓨터'에서 공백이 탈락된 것으로 보임. 다만 이는 A06(띄어쓰기) 영역이므로 본 유형과 무관함.",
+      "suggested": null
+    }
+  ],
+  "confidence": "low"
+}

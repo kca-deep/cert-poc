@@ -1,0 +1,21 @@
+{
+  "question_number": 2,
+  "type_code": "A04",
+  "type_name": "맞춤법",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "외뷰 업체에",
+      "suspected": "'외뷰'는 표준어가 아님. '외부'가 올바른 표준어 표기임",
+      "suggested": "외부 업체에"
+    },
+    {
+      "location": "choice_1",
+      "original": "처리하여서는 안된다",
+      "suspected": "'안된다'는 '않된다'의 오류. 부정 어미 '-지 않-'의 과거형이 올바른 표기임",
+      "suggested": "처리하여서는 않된다"
+    }
+  ],
+  "confidence": "high"
+}

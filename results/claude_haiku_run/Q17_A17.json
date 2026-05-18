@@ -1,0 +1,18 @@
+{
+  "question_number": 17,
+  "type_code": "A17",
+  "type_name": "지문 원문자 탈자",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "( ㉡ )은(는) ( )의 지휘·감독을 받아",
+      "suspected": "세 번째 괄호 안에 원문자가 빠져 있음 — ㉡에 대응하는 선행 개념을 참조해야 할 위치에 빈 괄호가 있음",
+      "suggested": "( ㉡ )은(는) ( ㉠ )의 지휘·감독을 받아",
+      "extra": {
+        "missing_marker": "㉠"
+      }
+    }
+  ],
+  "confidence": "high"
+}

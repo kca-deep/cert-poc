@@ -1,0 +1,21 @@
+{
+  "question_number": 3,
+  "type_code": "A13",
+  "type_name": "문항번호 중복",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "①②④",
+      "suspected": "③번 선택지 번호가 누락되어 있음",
+      "suggested": null,
+      "extra": {
+        "duplicate_numbers": [],
+        "missing_numbers": [
+          "choice_3"
+        ]
+      }
+    }
+  ],
+  "confidence": "high"
+}

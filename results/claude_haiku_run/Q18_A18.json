@@ -1,0 +1,15 @@
+{
+  "question_number": 18,
+  "type_code": "A18",
+  "type_name": "문장 전체 생략",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "다음 문장이 설명하는 기관의 이름은?",
+      "suspected": "'다음 문장이 설명하는'이라고 지문 제시를 시사하지만 문항에 지문 블록이 전혀 존재하지 않음",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}

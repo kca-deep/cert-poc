@@ -1,0 +1,15 @@
+{
+  "question_number": 16,
+  "type_code": "A07",
+  "type_name": "특수기호(?) 누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "정보보호 인 감사",
+      "suspected": "㉣ 항목에서 '인'과 '감사' 사이에 연결하는 기호(·)가 누락됨",
+      "suggested": "정보보호 인·감사"
+    }
+  ],
+  "confidence": "high"
+}

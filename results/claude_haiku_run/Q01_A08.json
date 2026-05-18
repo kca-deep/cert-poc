@@ -1,0 +1,15 @@
+{
+  "question_number": 1,
+  "type_code": "A08",
+  "type_name": "매끄럽지 못한 문장",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "비가시성을 갖는 소스코드 및 응용 SW 및 솔루션을 포함",
+      "suspected": "'비가시성을 갖는'이 소프트웨어를 수식하는데, '소스코드 및 응용 SW 및 솔루션'의 나열 구조가 부자연스러워 문장이 어색함",
+      "suggested": "비가시성을 갖는 소스코드, 응용 SW, 솔루션을 포함"
+    }
+  ],
+  "confidence": "medium"
+}

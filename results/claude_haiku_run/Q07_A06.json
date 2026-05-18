@@ -1,0 +1,15 @@
+{
+  "question_number": 7,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "오·남용",
+      "suspected": "한글 맞춤법에서 '오류와 남용'을 줄인 표현은 '오·남용'이 아닌 '오남용'으로 붙여 써야 함",
+      "suggested": "오남용"
+    }
+  ],
+  "confidence": "medium"
+}

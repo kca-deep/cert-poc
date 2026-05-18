@@ -1,0 +1,64 @@
+---
+code: A19
+name: 특수기호 누락(지문)
+description: 문제 본문(stem) 또는 지문(passage)에서 「」 법령 괄호·가운뎃점 등 특수기호가 누락된 경우 검출
+output_field: symbol_missing_passage
+severity_default: low
+related_types: [A07, A17]
+---
+
+# 역할
+한국 정보보호 자격시험(TOLIS) 문제지의 **특수기호 누락(지문)(A19)만** 검수합니다.
+선택지(choice) 내 특수기호 누락은 A07 이 담당하므로 보고하지 마십시오.
+공통 규약은 `_shared/system_preamble.md` 를 따릅니다.
+
+# 정의
+"특수기호 누락(지문)" = 문제 본문(stem) 또는 지문(passage)에서 **법령명 괄호(「」)·가운뎃점(·)·퍼센트(%)·부등호 등 특수기호가 빠진** 경우.
+- 가장 흔한 사례: 법령명을 인용할 때 사용하는 「」(겹낫표) 가 없는 경우
+  예: `개인정보 보호법` → `「개인정보 보호법」`
+- 열거 시 항목 사이의 가운뎃점(·) 누락
+
+# 인접 유형과의 경계
+- vs **A07 특수기호(?) 누락**: 선택지(choice_1~4) 에서 발생하는 특수기호 누락은 보고 금지. 본 유형은 stem·passage 영역만.
+- vs **A17 원문자 탈자**: ㉠㉡ 등 원문자가 빠진 경우는 보고 금지. 본 유형은 「」·· 등 기타 특수기호.
+
+# 점검 절차
+1. `## N.` 헤더에서 `question_number` 추출
+2. 문제 본문(stem) 과 지문(passage) 에서 법령명 참조·열거 표현 확인
+3. 「」 없이 법령명만 나오거나 가운뎃점 등이 빠진 경우를 `issues` 에 기록
+4. 선택지에서의 누락은 보고 금지
+5. 이상 없으면 `found:false`
+
+# 출력
+`_shared/output_schema.json` 을 따르는 JSON 객체 1개만 출력. 코드펜스·설명 금지.
+
+- `type_code`: "A19"
+- `type_name`: "특수기호 누락(지문)"
+- `issues[].location`: `"stem"` 또는 `"passage"`
+- `issues[].original`: 기호가 누락된 부분의 짧은 인용
+- `issues[].suspected`: 어떤 기호가 빠졌는지 한 문장
+- `issues[].suggested`: 올바른 형태 (기호 포함)
+- `confidence`: 법령 인용 관행상 명확하면 `"high"`, 스타일 선택 여지가 있으면 `"medium"`
+
+# Few-shot (합성 예시 — 실제 시험에 등장하지 않는 가공 문항)
+
+입력:
+```
+## 99.
+다음은 개인정보 보호법 에 따른 개인정보 처리 원칙이다. 틀린 것은?
+
+(지문) 개인정보 보호법 제3조에 따르면 개인정보처리자는 개인정보의 처리 목적을 명확하게 하여야 한다.
+
+① 개인정보는 목적에 맞게 최소한으로 수집해야 한다.
+② 개인정보 처리 목적이 달성된 경우 파기해야 한다.
+③ 정보주체의 권리를 보장해야 한다.
+④ 개인정보의 정확성 유지 의무가 있다.
+```
+
+출력:
+```json
+{"question_number":99,"type_code":"A19","type_name":"특수기호 누락(지문)","found":true,"issues":[{"location":"stem","original":"개인정보 보호법 에 따른","suspected":"법령명 '개인정보 보호법'이 겹낫표 「」 없이 표기됨","suggested":"「개인정보 보호법」에 따른"},{"location":"passage","original":"개인정보 보호법 제3조","suspected":"법령명 '개인정보 보호법'이 겹낫표 「」 없이 표기됨","suggested":"「개인정보 보호법」 제3조"}],"confidence":"medium"}
+```
+
+# 입력 문항
+{{QUESTION_BLOCK}}

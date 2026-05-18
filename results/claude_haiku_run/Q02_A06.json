@@ -1,0 +1,15 @@
+{
+  "question_number": 2,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "안된다",
+      "suspected": "부정 표현 '안 되다'는 '안'과 '되다'를 띄어 써야 하므로 '안 된다'가 올바름",
+      "suggested": "안 된다"
+    }
+  ],
+  "confidence": "high"
+}

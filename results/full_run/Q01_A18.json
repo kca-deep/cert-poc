@@ -1,0 +1,15 @@
+{
+  "question_number": 1,
+  "type_code": "A18",
+  "type_name": "문장 전체 생략",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "다음 문장에서 설명하는 정보자산을 바르게 묶은 것은?",
+      "suspected": "'다음 문장'이라는 지문 제시를 시사하지만, 문항에 지문 블록이 전혀 존재하지 않음",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}

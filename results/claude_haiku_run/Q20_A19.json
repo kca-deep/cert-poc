@@ -1,0 +1,15 @@
+{
+  "question_number": 20,
+  "type_code": "A19",
+  "type_name": "특수기호 누락(지문)",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "개인정보 보호법(제28조의100)에 따라",
+      "suspected": "법령명 '개인정보 보호법'이 겹낫표 「」 없이 표기됨",
+      "suggested": "「개인정보 보호법」(제28조의100)에 따라"
+    }
+  ],
+  "confidence": "high"
+}

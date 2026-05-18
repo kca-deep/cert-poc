@@ -1,0 +1,15 @@
+{
+  "question_number": 16,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "정보보호 인 감사",
+      "suspected": "의존명사 '인'이 명사와 붙어 써져야 하는데, '인감사'로 읽혀 오인될 수 있으므로 '정보보호 인감사'로 붙여 써야 하거나, '정보보호 인원 감사' 등으로 명확히 해야 함. 현재 형태는 '인 감사'로 띄어져 있어 문법적 띄어쓰기 규범 위반",
+      "suggested": "정보보호인감사"
+    }
+  ],
+  "confidence": "medium"
+}

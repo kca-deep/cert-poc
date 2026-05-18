@@ -1,0 +1,15 @@
+{
+  "question_number": 6,
+  "type_code": "A07",
+  "type_name": "특수기호(?) 누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "무엇인가",
+      "suspected": "의문문 형태의 문제 본문 끝에 '?'가 누락됨",
+      "suggested": "무엇인가?"
+    }
+  ],
+  "confidence": "high"
+}

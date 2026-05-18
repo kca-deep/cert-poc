@@ -1,0 +1,18 @@
+{
+  "question_number": 10,
+  "type_code": "A04",
+  "type_name": "맞춤법",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "이바지함을 목적으로 함다",
+      "suspected": "'함다'는 맞춤법 오류 — 종결어미 '-ㄴ다' 형태가 아닌 '-ㅂ다' 형태의 동사 어간에 쓰이는데, '함'은 '-ㅂ다' 형태가 아니므로 '-ㄴ다'를 써야 함",
+      "suggested": "이바지함을 목적으로 한다",
+      "extra": {
+        "rule": "종결어미: 동사의 어간이 '-ㅂ'으로 끝나지 않을 때는 '-ㄴ다'를 사용"
+      }
+    }
+  ],
+  "confidence": "high"
+}

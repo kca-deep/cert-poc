@@ -1,0 +1,15 @@
+{
+  "question_number": 11,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_3",
+      "original": "사망, 실종 선고 등 포함",
+      "suspected": "단위명사 '등'은 앞 말과 띄어 써야 하므로 '등 포함'이 아니라 '등포함'의 경우도 확인 필요하나, 현재 형태 '등 포함'에서는 '등'이 독립적으로 띄어진 것이 맞음. 다만 문맥상 '(사망, 실종 선고 등) 포함'의 의미로 보면 전체 구조를 재검토해야 함",
+      "suggested": null
+    }
+  ],
+  "confidence": "low"
+}

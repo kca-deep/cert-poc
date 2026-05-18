@@ -1,0 +1,15 @@
+{
+  "question_number": 8,
+  "type_code": "A08",
+  "type_name": "매끄럽지 못한 문장",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "중요한 정보가 훔치거나 국가 주요 시설을 마비시키는",
+      "suspected": "'훔치다'의 목적어인 '정보'에 목적격 조사 '-를/을' 대신 주격 조사 '-가'가 쓰여 주어-서술어 호응이 어색함",
+      "suggested": "중요한 정보를 훔치거나 국가 주요 시설을 마비시키는"
+    }
+  ],
+  "confidence": "high"
+}

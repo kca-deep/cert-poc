@@ -1,0 +1,18 @@
+{
+  "question_number": 16,
+  "type_code": "A08",
+  "type_name": "매끄럽지 못한 문장",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "정보보호 인 감사 및 개선",
+      "suspected": "명사 '인'이 홀로 남겨져 문장 구조가 불완전함. 의도된 단어가 누락되었거나 오자로 보임",
+      "suggested": "정보보호 감사 및 개선 (또는 의도된 단어 확인 필요)",
+      "extra": {
+        "note": "A02(오자) 범주일 가능성도 있으나, 문법 구조의 부자연스러움으로서 A08 범주에도 해당"
+      }
+    }
+  ],
+  "confidence": "medium"
+}

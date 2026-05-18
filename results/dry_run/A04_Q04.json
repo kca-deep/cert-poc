@@ -1,0 +1,15 @@
+{
+  "question_number": 4,
+  "type_code": "A04",
+  "type_name": "맞춤법",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "정보가 노출되지 안게",
+      "suspected": "'안게'는 '-않게'의 맞춤법 오류이며, 부정형 어미 '-지 않-'가 올바른 표기이다.",
+      "suggested": "정보가 노출되지 않게"
+    }
+  ],
+  "confidence": "high"
+}

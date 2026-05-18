@@ -1,0 +1,15 @@
+{
+  "question_number": 16,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "정보보호 인 감사",
+      "suspected": "'인'은 자모 변형으로 불완전한 단어. '인' 다음에 글자가 누락되었거나 오자된 것으로 보임",
+      "suggested": "정보보호 감사 또는 정보보호 시스템 감사"
+    }
+  ],
+  "confidence": "high"
+}

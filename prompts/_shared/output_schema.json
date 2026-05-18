@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cert-poc/output_schema.json",
+  "title": "Per-type check result",
+  "description": "정보보호 개요 카탈로그 A01~A20 유형 호출 1건의 LLM 응답 객체 스키마.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question_number", "type_code", "type_name", "found", "issues", "confidence"],
+  "properties": {
+    "question_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "입력 문항의 '## N.' N 값"
+    },
+    "type_code": {
+      "type": "string",
+      "pattern": "^A(0[1-9]|1[0-9]|20)$",
+      "description": "카탈로그 코드 (A01~A20)"
+    },
+    "type_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "found": {
+      "type": "boolean"
+    },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/issue" }
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["location", "original", "suspected"],
+      "properties": {
+        "location": {
+          "type": "string",
+          "enum": ["stem", "passage", "choice_1", "choice_2", "choice_3", "choice_4"]
+        },
+        "original": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suspected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggested": {
+          "type": ["string", "null"],
+          "description": "교정 후보. 확신 없으면 null"
+        },
+        "extra": {
+          "type": "object",
+          "description": "유형별 보조 정보 (선택). 예: A01 의 duplicate_with, A03 의 missing_choices"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "question_number": 3,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_3",
+      "original": "③",
+      "suspected": "③번 선택지 텍스트가 없음",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}

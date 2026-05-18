@@ -1,0 +1,15 @@
+{
+  "question_number": 13,
+  "type_code": "A15",
+  "type_name": "보기 없음",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_2",
+      "original": "③",
+      "suspected": "②번 선택지가 누락되고 ③번이 중복으로 표기됨",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}

@@ -1,0 +1,15 @@
+{
+  "question_number": 17,
+  "type_code": "A14",
+  "type_name": "정답유출",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "( ㉠ )은 개인정보를 처리하는 공공기관이나 사업자·단체 등을 의미하지만, ( ㉡ )은(는) ( )의 지휘·감독을",
+      "suspected": "세 번째 괄호 ( )의 정답이 ㉠과 동일해야 하는데, 두 번째 문장에서 ㉠이 '개인정보를 처리하는 공공기관이나 사업자·단체'로 정의되어 있어 세 번째 빈칸의 답이 자동으로 노출됨",
+      "suggested": null
+    }
+  ],
+  "confidence": "medium"
+}

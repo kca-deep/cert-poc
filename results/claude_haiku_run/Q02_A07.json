@@ -1,0 +1,15 @@
+{
+  "question_number": 2,
+  "type_code": "A07",
+  "type_name": "특수기호(?) 누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "외뷰 업체에 위탁하여 처리하여서는 안된다.",
+      "suspected": "선택지 항목 구분을 위한 마침표 또는 가운뎃점이 필요하지만, 이 경우는 선택지 답변의 종결 구두점으로 마침표가 있음. 다만 선택지 간 일관성 검토 필요 - 모든 선택지가 마침표로 끝나는지 확인해야 함",
+      "suggested": null
+    }
+  ],
+  "confidence": "medium"
+}

@@ -1,0 +1,15 @@
+{
+  "question_number": 13,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_2",
+      "original": "③",
+      "suspected": "②번 선택지가 누락되고 ③번이 중복됨 (①, ③, ③, ④ 순서)",
+      "suggested": "②번 위치에 적절한 선택지 필요"
+    }
+  ],
+  "confidence": "high"
+}

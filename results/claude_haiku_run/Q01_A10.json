@@ -1,0 +1,19 @@
+{
+  "question_number": 1,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "① ㉠ 매체 ㉡ 데이터 ㉢ 소프트웨어 ㉣ 시설",
+      "suspected": "①번과 ②번 선택지의 텍스트가 동일하게 중복되어 있음",
+      "suggested": null,
+      "extra": {
+        "duplicate_with": "choice_2",
+        "note": "①번이 ②번과 완전히 같은 텍스트를 가지고 있어 한 쪽이 누락되거나 잘못 기록된 것으로 보임"
+      }
+    }
+  ],
+  "confidence": "high"
+}

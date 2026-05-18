@@ -1,0 +1,15 @@
+{
+  "question_number": 20,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "알권리 등",
+      "suspected": "의존명사 '권'은 앞 말과 띄어 써야 하므로 '알 권리'가 올바름",
+      "suggested": "알 권리"
+    }
+  ],
+  "confidence": "high"
+}

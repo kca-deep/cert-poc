@@ -1,0 +1,15 @@
+{
+  "question_number": 6,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "스마트폰·개인용컴퓨터(PC)와",
+      "suspected": "'개인용컴퓨터'는 복합어로 붙여 쓰되, 앞의 '스마트폰·'과 병렬 구조에서 일관성을 고려할 때 의존명사 '용'의 띄어쓰기가 아니므로 현 표기가 맞으나, 일반적으로는 '개인용 컴퓨터' 또는 '개인 컴퓨터'로 띄어 쓰는 것이 규범적임",
+      "suggested": "개인용 컴퓨터"
+    }
+  ],
+  "confidence": "medium"
+}

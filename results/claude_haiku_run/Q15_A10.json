@@ -1,0 +1,33 @@
+{
+  "question_number": 15,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "①",
+      "suspected": "①번 선택지 텍스트가 없음",
+      "suggested": null
+    },
+    {
+      "location": "choice_2",
+      "original": "②",
+      "suspected": "②번 선택지 텍스트가 없음",
+      "suggested": null
+    },
+    {
+      "location": "choice_3",
+      "original": "③",
+      "suspected": "③번 선택지 텍스트가 없음",
+      "suggested": null
+    },
+    {
+      "location": "choice_4",
+      "original": "④",
+      "suspected": "④번 선택지 텍스트가 없음",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}

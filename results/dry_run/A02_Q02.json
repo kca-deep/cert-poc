@@ -1,0 +1,15 @@
+{
+  "question_number": 2,
+  "type_code": "A02",
+  "type_name": "오자",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_1",
+      "original": "외뷰",
+      "suspected": "'외뷰'은 '외부'의 자모 오자(ㅜ→ㅠ)",
+      "suggested": "외부"
+    }
+  ],
+  "confidence": "high"
+}

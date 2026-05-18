@@ -1,0 +1,15 @@
+{
+  "question_number": 10,
+  "type_code": "A02",
+  "type_name": "오자",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "목적으로 함다",
+      "suspected": "'함다'는 '한다'의 자모 오자(ㅁ→ㄴ)로, 문맥상 의도된 단어와 다른 음절",
+      "suggested": "목적으로 한다"
+    }
+  ],
+  "confidence": "high"
+}

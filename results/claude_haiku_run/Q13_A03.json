@@ -1,0 +1,20 @@
+{
+  "question_number": 13,
+  "type_code": "A03",
+  "type_name": "보기개수 미달",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "①③③④",
+      "suspected": "②번 선택지가 존재하지 않아 총 보기가 3개임",
+      "suggested": null,
+      "extra": {
+        "missing_choices": [
+          "choice_2"
+        ]
+      }
+    }
+  ],
+  "confidence": "high"
+}

@@ -1,0 +1,15 @@
+{
+  "question_number": 4,
+  "type_code": "A04",
+  "type_name": "맞춤법",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "노출되지 안게 하는",
+      "suspected": "'안게'는 맞춤법 오류. 부정 어미 '-지 않-'의 올바른 형태는 '않게'이어야 함",
+      "suggested": "노출되지 않게 하는"
+    }
+  ],
+  "confidence": "high"
+}

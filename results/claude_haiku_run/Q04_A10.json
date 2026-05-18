@@ -1,0 +1,16 @@
+{
+  "question_number": 4,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "노출되지 안게 하는",
+      "suspected": "'안게'는 '않게'의 자모 오자(ㄴ→ㄴㄱ 변형)로 의도한 단어가 아님",
+      "suggested": "노출되지 않게 하는",
+      "extra": null
+    }
+  ],
+  "confidence": "high"
+}

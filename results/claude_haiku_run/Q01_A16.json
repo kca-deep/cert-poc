@@ -1,0 +1,18 @@
+{
+  "question_number": 1,
+  "type_code": "A16",
+  "type_name": "탈자",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "비가시성을",
+      "suspected": "'비가시성'에서 '시' 음절이 탈락되어 불완전한 단어로 보임. '비가시성(non-visibility)'의 올바른 형태는 '비가시성' 또는 문맥상 '무형성'을 의미하려면 다른 표현이어야 함",
+      "suggested": "무형성을",
+      "extra": {
+        "note": "문맥상 소프트웨어의 특성을 설명하는 용어로 보아 '무형성' 또는 '비물질성'이 적절함"
+      }
+    }
+  ],
+  "confidence": "medium"
+}

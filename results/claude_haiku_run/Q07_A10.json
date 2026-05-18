@@ -1,0 +1,22 @@
+{
+  "question_number": 7,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "㉠ 정보보호 계획의 수립·시행 및 개선\n- ㉣ 정보보호 계획의 수립·시행 및 개선",
+      "suspected": "㉠과 ㉣의 내용이 동일하게 반복되어 있음. ㉣의 텍스트가 다른 내용으로 교체되어야 함",
+      "suggested": null,
+      "extra": {
+        "duplicate_items": [
+          "㉠",
+          "㉣"
+        ],
+        "note": "보기 ②에서 ㉠, ㉣를 선택하는 것이 논리적으로 성립할 수 없음"
+      }
+    }
+  ],
+  "confidence": "high"
+}

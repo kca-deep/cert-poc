@@ -1,0 +1,15 @@
+{
+  "question_number": 6,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "대학서 인재 양성해야",
+      "suspected": "조사 '에서'와 명사 사이에 공백이 없어야 하므로 '대학에서'가 올바름",
+      "suggested": "대학에서"
+    }
+  ],
+  "confidence": "high"
+}

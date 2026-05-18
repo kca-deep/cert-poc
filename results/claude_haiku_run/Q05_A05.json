@@ -1,0 +1,18 @@
+{
+  "question_number": 5,
+  "type_code": "A05",
+  "type_name": "오자(영어)",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_4",
+      "original": "DaS, Danial of Service",
+      "suspected": "'Danial'은 'Denial'의 철자 오자(e가 a로 잘못됨)",
+      "suggested": "DoS, Denial of Service",
+      "extra": {
+        "note": "'DaS'도 표준 약어 'DoS'로 교정 필요함"
+      }
+    }
+  ],
+  "confidence": "high"
+}

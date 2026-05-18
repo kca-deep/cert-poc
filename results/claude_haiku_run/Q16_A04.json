@@ -1,0 +1,15 @@
+{
+  "question_number": 16,
+  "type_code": "A04",
+  "type_name": "맞춤법",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "정보보호 인 감사",
+      "suspected": "'인 감사'는 맞춤법 오류로, '인'과 '감사' 사이에 어절이 누락되었거나 '인'이 불필요한 글자로 보임. 맥락상 '정보보호 감사' 또는 '정보보호 인증 감사' 등이 되어야 함",
+      "suggested": "정보보호 감사 (또는 정보보호 인증 감사)"
+    }
+  ],
+  "confidence": "medium"
+}

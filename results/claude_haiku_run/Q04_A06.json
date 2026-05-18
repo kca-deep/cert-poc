@@ -1,0 +1,15 @@
+{
+  "question_number": 4,
+  "type_code": "A06",
+  "type_name": "띄어쓰기",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "노출되지 안게",
+      "suspected": "부정형 표현이 '안게 하다'로 띄어 써야 함. '노출되지 않게'는 부정소 '안'과 동사를 띄어 써야 하는데, 현재 문장은 '안게'로 붙여 있음",
+      "suggested": "노출되지 않게"
+    }
+  ],
+  "confidence": "high"
+}

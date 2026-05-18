@@ -1,0 +1,15 @@
+{
+  "question_number": 8,
+  "type_code": "A02",
+  "type_name": "오자",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "정보가 훔치거나",
+      "suspected": "'훔치거나'는 '훔쳐지거나' 또는 '훔쳐지거나'를 의도한 것으로 보이지만, 문법적 오류로 판단되어 A02 범위 밖임. 재검토: '훔치거나'는 자모 오자 아닌 문법 오류(A04)로 분류됨",
+      "suggested": null
+    }
+  ],
+  "confidence": "low"
+}

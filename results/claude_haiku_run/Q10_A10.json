@@ -1,0 +1,21 @@
+{
+  "question_number": 10,
+  "type_code": "A10",
+  "type_name": "오타+보기누락",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "충진에 이바지함을 목적으로 함다",
+      "suspected": "'함다'는 '한다'의 자모 오자(ㅁ→ㄴ 교체)",
+      "suggested": "한다"
+    },
+    {
+      "location": "choice_1",
+      "original": "①",
+      "suspected": "①번 선택지 텍스트가 없음",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}
