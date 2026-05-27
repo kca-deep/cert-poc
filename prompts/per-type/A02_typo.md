@@ -28,7 +28,8 @@ related_types: [A04, A05, A16]
 2. 문제 본문(stem) → 지문/인용(passage) → 선택지 ①~④(choice_1~4) 순으로 한 단어씩 검토
 3. 어떤 단어가 자모 변형으로 인해 의도한 단어와 다른 음절이 되었는지만 판단
 4. 맞춤법·영어·탈자 등 다른 범주로 설명되는 경우는 추가하지 않음
-5. 확신이 없으면 `found:false` + `confidence:"low"` 로 응답
+5. **탐지 적극성**: 사전에 없는 음절(비표준어)이 등장하면 반드시 `issues`에 기록. 불확실하더라도 `found:true` + `confidence:"medium"`으로 보고하는 것이 미탐보다 낫습니다.
+6. `found:false`는 모든 단어가 사전에 존재하고 문맥상 정상임이 명백한 경우에만 사용
 
 # 출력
 `_shared/output_schema.json` 을 따르는 JSON 객체 1개만 출력. 코드펜스·설명 금지.
@@ -39,7 +40,7 @@ related_types: [A04, A05, A16]
 - `issues[].original`: 결함 음절을 포함한 최소 인용 (1~2 어절)
 - `issues[].suspected`: "'X' 는 'Y' 의 자모 오자" 형태 한 문장
 - `issues[].suggested`: 교정 후보 단어/구절
-- `confidence`: 사전 미등재·문맥 불일치가 명확하면 `"high"`, 한 글자 차이지만 실존 단어일 여지가 있으면 `"medium"`
+- `confidence`: 사전 미등재·문맥 불일치가 명확하면 `"high"`, 한 글자 차이지만 실존 단어일 여지가 있으면 `"medium"`. **사전에 없는 단어가 분명히 존재하면 `"low"`는 사용하지 마십시오.**
 
 # Few-shot (합성 예시 — 실제 시험에 등장하지 않는 가공 문항)
 

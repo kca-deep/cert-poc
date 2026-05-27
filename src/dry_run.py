@@ -11,11 +11,9 @@ dry_run.py — 시범 5개 유형 × 대응 문항 LM Studio 호출 테스트
 
 import argparse
 import json
-import os
 import re
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
 
 # Windows cp949 콘솔 한글 깨짐 방지
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
@@ -27,11 +25,13 @@ try:
 except ImportError:
     sys.exit("openai 패키지가 필요합니다: pip install openai")
 
-ROOT = Path(__file__).parent.parent
-load_dotenv(ROOT / ".env")
+from config import lm_config, print_lm_config
 
-BASE_URL = os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:1234/v1")
-MODEL    = "openai/gpt-oss-20b"   # 축약형 'gpt-oss-20b'는 깨진 참조 (garbage 출력)
+ROOT = Path(__file__).parent.parent
+
+CFG      = lm_config()
+BASE_URL = CFG["base_url"]
+MODEL    = CFG["model"]
 
 # 시범 5개: (유형코드, 대응 문항 번호)
 DRY_RUN_PAIRS = [
@@ -102,27 +102,35 @@ class LMCallError(Exception):
 
 
 def call_lm_studio(messages: list[dict]) -> dict:
-    # max_retries=0: OpenAI 클라이언트 내부 자동 재시도 비활성화 (degenerate loop 시 9회→1회)
-    # timeout=90: HTTP 응답 최대 대기 90초
-    client = OpenAI(base_url=BASE_URL, api_key="lm-studio", timeout=120, max_retries=0)
+    # max_retries=0: OpenAI 클라이언트 내부 자동 재시도 비활성화
+    client = OpenAI(base_url=BASE_URL, api_key="lm-studio",
+                    timeout=CFG["timeout"], max_retries=0)
     resp = client.chat.completions.create(
         model=MODEL,
         messages=messages,
-        temperature=1.0,
-        max_tokens=16000,
-        extra_body={"reasoning_effort": "medium"},   # 'high' → 'medium': timeout/품질 균형
+        temperature=CFG["temperature"],
+        max_tokens=CFG["max_tokens"],
+        extra_body={"reasoning_effort": CFG["reasoning_effort"]},
     )
     raw = (resp.choices[0].message.content or "").strip()
     finish = resp.choices[0].finish_reason
     rt = resp.usage.completion_tokens_details.reasoning_tokens if resp.usage.completion_tokens_details else "?"
-    # 코드펜스 제거 (모델이 감쌀 경우 대비)
+    blocks = re.findall(r"```(?:json)?\s*([\s\S]+?)```", raw)
+    candidates = blocks if blocks else [raw]
+    last_error = None
+    for candidate in reversed(candidates):
+        candidate = candidate.strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            last_error = e
     clean = re.sub(r"^```(?:json)?\s*", "", raw)
     clean = re.sub(r"\s*```$", "", clean)
     try:
         return json.loads(clean)
     except json.JSONDecodeError as e:
         raise LMCallError(
-            f"JSON 파싱 실패 (finish={finish}, reasoning_tokens={rt}): {e}",
+            f"JSON 파싱 실패 (finish={finish}, reasoning_tokens={rt}): {last_error or e}",
             raw=raw[:1000]
         )
 
@@ -170,6 +178,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="기본 5개 쌍 전체 실행")
     args = parser.parse_args()
 
+    print_lm_config(CFG)
     x_text  = DATA_PATH.read_text(encoding="utf-8")
     preamble = load_preamble()
 

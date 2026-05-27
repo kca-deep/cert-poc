@@ -14,12 +14,10 @@ LM Studio(gpt-oss-20b) 호출만 Anthropic SDK 로 교체. 프롬프트/sanitize
 
 import argparse
 import json
-import os
 import re
 import sys
 import time
 from pathlib import Path
-from dotenv import load_dotenv
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -30,12 +28,16 @@ try:
 except ImportError:
     sys.exit("anthropic 패키지가 필요합니다: pip install anthropic")
 
+from config import claude_config
+
 ROOT = Path(__file__).parent.parent
-load_dotenv(ROOT / ".env")
 
-MODEL = "claude-haiku-4-5"
+_CCFG      = claude_config()
+MODEL      = _CCFG["model"]
+MAX_RETRIES = _CCFG["max_retries"]
+RETRY_DELAY = _CCFG["retry_delay"]
 
-ALL_TYPES = [f"A{n:02d}" for n in range(1, 21)]
+ALL_TYPES     = [f"A{n:02d}" for n in range(1, 21)]
 ALL_QUESTIONS = list(range(1, 21))
 
 DRY_RUN_PAIRS = [
@@ -47,11 +49,8 @@ DRY_RUN_PAIRS = [
 ]
 
 PROMPT_DIR = ROOT / "prompts"
-DATA_PATH = ROOT / "data" / "정보보호개요_X.md"
+DATA_PATH  = ROOT / "data" / "정보보호개요_X.md"
 RESULT_DIR = ROOT / "results" / "claude_haiku_run"
-
-MAX_RETRIES = 1
-RETRY_DELAY = 3
 
 
 def load_preamble() -> str:
@@ -99,7 +98,7 @@ class LMCallError(Exception):
 def call_claude(client: anthropic.Anthropic, preamble: str, user_content: str) -> tuple[dict, dict]:
     resp = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=_CCFG["max_tokens"],
         system=preamble,
         messages=[{"role": "user", "content": user_content}],
     )

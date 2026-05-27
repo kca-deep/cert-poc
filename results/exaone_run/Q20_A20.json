@@ -1,0 +1,18 @@
+{
+  "question_number": 20,
+  "type_code": "A20",
+  "type_name": "틀린 법령 조항",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "개인정보 보호법(제28조의100)",
+      "suspected": "제28조의100은 존재하지 않는 조항 번호이며, 개인정보 처리방침 평가제도와 관련된 조항 번호가 잘못 인용되었다",
+      "suggested": null,
+      "extra": {
+        "note": "개인정보 보호법 내에서 제28조의100과 같은 복합 조항 번호는 실제 법령에 존재하지 않음."
+      }
+    }
+  ],
+  "confidence": "high"
+}

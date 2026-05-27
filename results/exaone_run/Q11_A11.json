@@ -1,0 +1,15 @@
+{
+  "question_number": 11,
+  "type_code": "A11",
+  "type_name": "낙서(편집 표시 유형1)",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "[검토필요]",
+      "suspected": "문제 본문 시작 부분에 편집 메모 '[검토필요]'가 단일 대괄호 태그로 남아 있음",
+      "suggested": ""
+    }
+  ],
+  "confidence": "high"
+}

@@ -1,0 +1,15 @@
+{
+  "question_number": 10,
+  "type_code": "A16",
+  "type_name": "탈자",
+  "found": true,
+  "issues": [
+    {
+      "location": "passage",
+      "original": "함다",
+      "suspected": "'함다'는 '합니다'에서 'ᄇ' 자음이 빠진 불완전한 형태",
+      "suggested": "합니다"
+    }
+  ],
+  "confidence": "high"
+}

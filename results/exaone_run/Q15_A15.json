@@ -1,0 +1,15 @@
+{
+  "question_number": 15,
+  "type_code": "A15",
+  "type_name": "보기 없음",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "①②③④",
+      "suspected": "1~3번 선택지 텍스트 없음",
+      "suggested": null
+    }
+  ],
+  "confidence": "high"
+}

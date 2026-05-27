@@ -1,0 +1,15 @@
+{
+  "question_number": 9,
+  "type_code": "A09",
+  "type_name": "틀린 법령명",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_3",
+      "original": "정보통신망 사용촉진 및 정보보호 등에 관한 법률",
+      "suspected": "'사용촉진'이라는 단어가 공식 법령명과 일치하지 않으며, 정확한 명칭은 '이용촉진'이어야 합니다",
+      "suggested": "정보통신망 이용촉진 및 정보보호 등에 관한 법률"
+    }
+  ],
+  "confidence": "high"
+}

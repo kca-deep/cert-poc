@@ -1,0 +1,18 @@
+{
+  "question_number": 1,
+  "type_code": "A01",
+  "type_name": "보기 중복",
+  "found": true,
+  "issues": [
+    {
+      "location": "choice_2",
+      "original": "㉠ 매체 ㉡ 데이터 ㉢ 소프트웨어 ㉣ 시설",
+      "suspected": "①번 선택지와 매핑 순서가 완전 동일",
+      "suggested": null,
+      "extra": {
+        "duplicate_with": "choice_1"
+      }
+    }
+  ],
+  "confidence": "high"
+}

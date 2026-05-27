@@ -1,0 +1,15 @@
+{
+  "question_number": 19,
+  "type_code": "A19",
+  "type_name": "특수기호 누락(지문)",
+  "found": true,
+  "issues": [
+    {
+      "location": "stem",
+      "original": "개인정보 보호법 의",
+      "suspected": "법령명 '개인정보 보호법'이 겹낫표 「」 없이 표기됨",
+      "suggested": "「개인정보 보호법」 의"
+    }
+  ],
+  "confidence": "high"
+}

@@ -17,20 +17,22 @@ from pathlib import Path
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT       = Path(__file__).parent.parent
-RESULT_DIR = ROOT / "results" / "full_run"
+ROOT            = Path(__file__).parent.parent
+DEFAULT_RESULT_DIR = ROOT / "results" / "full_run"
+RESULT_DIR      = DEFAULT_RESULT_DIR  # load_results()에서 재할당됨
 
 ALL_TYPES     = [f"A{n:02d}" for n in range(1, 21)]
 ALL_QUESTIONS = list(range(1, 21))
 
 # Q_n 에 실제로 주입된 오류 유형 (Ground Truth)
+# Q6: O.md 와 X.md 의 ## 6. 내용이 동일 — 오류 미주입 확인
 INJECTED_TYPE = {
     1:  "A01",  # 보기 중복
     2:  "A02",  # 오자
     3:  "A03",  # 보기개수 미달
     4:  "A04",  # 맞춤법
     5:  "A05",  # 오자(영어)
-    6:  "A06",  # 띄어쓰기
+    # 6: 없음 — O==X, 오류 미주입
     7:  "A07",  # 특수기호 누락
     8:  "A08",  # 매끄럽지 못한 문장
     9:  "A09",  # 틀린 법령명
@@ -71,8 +73,50 @@ def expected(q_num: int, code: str) -> bool:
     if INJECTED_TYPE.get(q_num) == code:
         return True
     if (q_num, code) in ALLOWED_CROSS:
-        return True   # 허용 크로스는 true 여도 정탐으로 처리
+        return True
     return False
+
+
+def post_process_exclusions(records: list[dict]) -> list[dict]:
+    """규칙 기반 오탐 억제 후처리.
+
+    Rule 1: 동일 (문항, 위치)에 A02/A04/A05가 found=True이면 같은 위치의 A06/A08 억제.
+    Rule 2: A08 confidence=medium 이고 같은 문항에 다른 유형 found=True가 있으면 A08 억제.
+    """
+    records = [dict(r) for r in records]
+    by_key = {(r["q"], r["code"]): i for i, r in enumerate(records)}
+
+    # Rule 2 전처리: A08(medium) 억제
+    for q in ALL_QUESTIONS:
+        a08_idx = by_key.get((q, "A08"))
+        if a08_idx is None:
+            continue
+        a08 = records[a08_idx]
+        if a08.get("found") and a08.get("confidence") == "medium":
+            co_found = any(
+                records[by_key[(q, c)]].get("found")
+                for c in ALL_TYPES if c != "A08" and (q, c) in by_key
+            )
+            if co_found:
+                a08["found"] = False
+                a08["_suppressed"] = "Rule2: A08-medium suppressed by co-occurring type"
+
+    # Rule 1: (q, location) 에 강한 유형(A02/A04/A05) 존재 시 A06/A08 억제
+    strong_locs: set[tuple] = set()
+    for r in records:
+        if r.get("found") and r["code"] in ("A02", "A04", "A05"):
+            for iss in r.get("issues", []):
+                if iss.get("location"):
+                    strong_locs.add((r["q"], iss["location"]))
+
+    for r in records:
+        if r.get("found") and r["code"] in ("A06", "A08") and not r.get("_suppressed"):
+            issues = r.get("issues", [])
+            if issues and all((r["q"], iss.get("location")) in strong_locs for iss in issues):
+                r["found"] = False
+                r["_suppressed"] = f"Rule1: {r['code']} suppressed by strong type at same location"
+
+    return records
 
 
 def load_results() -> list[dict]:
@@ -165,7 +209,7 @@ def analyze(records: list[dict], detail: bool, fp_only: bool):
     if fp_only:
         print("\n■ 오탐(FP) 목록")
         for q, code, conf, issues in fp_list:
-            first = issues[0]["suspected"][:60] if issues else "-"
+            first = issues[0].get("suspected", "-")[:60] if issues else "-"
             print(f"  Q{q:02d} × {code} ({TYPE_NAME[code]})  conf={conf}")
             print(f"    → {first}")
         return
@@ -188,15 +232,18 @@ def analyze(records: list[dict], detail: bool, fp_only: bool):
         print("-" * len(hdr2))
         for q in ALL_QUESTIONS:
             s = q_stats[q]
-            inj = INJECTED_TYPE[q]
-            det = "✓" if s["TP"] > 0 else "✗"
-            print(f"  Q{q:02d}  {inj}   {det}    FP={s['FP']:2d}   ERR={s['ERR']:2d}")
+            inj = INJECTED_TYPE.get(q, "없음")
+            if inj == "없음":
+                det = "-"  # 오류 미주입 문항
+            else:
+                det = "✓" if s["TP"] > 0 else "✗"
+            print(f"  Q{q:02d}  {inj:<6} {det}    FP={s['FP']:2d}   ERR={s['ERR']:2d}")
 
     # ── 오탐 목록 ────────────────────────────────────────────
     if fp_list:
         print(f"\n■ 오탐(FP) 상세 — 총 {len(fp_list)}건")
         for q, code, conf, issues in fp_list:
-            first = issues[0]["suspected"][:70] if issues else "-"
+            first = issues[0].get("suspected", "-")[:70] if issues else "-"
             print(f"  Q{q:02d} × {code} ({TYPE_NAME[code]})  conf={conf}")
             print(f"    → {first}")
 
@@ -221,7 +268,7 @@ def analyze(records: list[dict], detail: bool, fp_only: bool):
         "fp_list": [
             {"q": q, "type": code, "type_name": TYPE_NAME[code],
              "confidence": conf,
-             "suspected": issues[0]["suspected"][:100] if issues else ""}
+             "suspected": issues[0].get("suspected", "")[:100] if issues else ""}
             for q, code, conf, issues in fp_list
         ],
         "fn_list": [{"q": q, "type": code} for q, code in fn_list],
@@ -235,14 +282,37 @@ def analyze(records: list[dict], detail: bool, fp_only: bool):
 
 
 def main():
+    global RESULT_DIR
     parser = argparse.ArgumentParser()
-    parser.add_argument("--detail", action="store_true", help="유형별·문항별 상세 출력")
-    parser.add_argument("--fp",     action="store_true", help="오탐 목록만 출력")
+    parser.add_argument("--detail",      action="store_true", help="유형별·문항별 상세 출력")
+    parser.add_argument("--fp",          action="store_true", help="오탐 목록만 출력")
+    parser.add_argument("--postprocess", action="store_true", help="규칙 기반 오탐 억제 후처리 적용")
+    parser.add_argument("--questions",   nargs="+", type=int,
+                        help="분석할 문항 번호 목록 (예: --questions 1 2 3)")
+    parser.add_argument("--dir",         type=str,  default=None,
+                        help="결과 디렉토리 경로 (기본: results/full_run)")
     args = parser.parse_args()
 
+    if args.dir:
+        RESULT_DIR = Path(args.dir)
     records = load_results()
+
+    if args.questions:
+        q_set = set(args.questions)
+        records = [r for r in records if r["q"] in q_set]
+        label = f"Q{min(q_set):02d}~Q{max(q_set):02d}"
+    else:
+        label = "전체"
+
+    if args.postprocess:
+        before = sum(1 for r in records if r.get("found"))
+        records = post_process_exclusions(records)
+        after = sum(1 for r in records if r.get("found"))
+        print(f"[후처리] found=True: {before} → {after} ({before - after}건 억제)\n")
+
     covered = sum(1 for r in records if r["found"] is not None or r["error"] != "결과 없음")
-    print(f"결과 파일 {covered}/400 로드 완료\n")
+    total = len(records)
+    print(f"[분석 범위: {label}]  결과 파일 {covered}/{total} 로드 완료\n")
     analyze(records, detail=args.detail, fp_only=args.fp)
 
 
