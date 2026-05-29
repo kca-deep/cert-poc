@@ -1,11 +1,12 @@
 """
-full_run.py — A01~A20 × Q01~Q20 = 400 콜 전체 실행 러너
+full_run.py — A01~A20 × 전체 문항 LLM 이상 탐지 러너
 
 사용법:
-    python src/full_run.py              # 전체 400 콜 (기존 결과 스킵)
-    python src/full_run.py --reset      # 기존 결과 무시하고 전체 재실행
-    python src/full_run.py --q 3        # Q03만 (20 콜)
-    python src/full_run.py --type A09   # A09만 (20 콜)
+    python src/full_run.py                          # 전체 실행 (기존 결과 스킵)
+    python src/full_run.py --reset                  # 기존 결과 무시하고 전체 재실행
+    python src/full_run.py --q 3                    # Q03만
+    python src/full_run.py --type A09               # A09만
+    python src/full_run.py --input data/파일.md     # 입력 MD 파일 지정
 
 출력: results/full_run/Q{nn}_{Axx}.json  (정상)
       results/full_run/Q{nn}_{Axx}_ERROR.json  (에러)
@@ -38,11 +39,15 @@ MAX_RETRIES = CFG["max_retries"]
 RETRY_DELAY = CFG["retry_delay"]
 
 ALL_TYPES = [f"A{n:02d}" for n in range(1, 21)]
-ALL_QUESTIONS = list(range(1, 21))
 
 PROMPT_DIR  = ROOT / "prompts"
 DATA_PATH   = ROOT / "data" / "정보보호개요_X.md"
 RESULT_DIR  = ROOT / "results" / "full_run"   # --outdir 으로 재할당 가능
+
+
+def extract_all_question_numbers(md_text: str) -> list[int]:
+    """MD 파일에서 ## N. 헤더를 스캔해 문항 번호 목록을 동적으로 반환."""
+    return sorted(int(m) for m in re.findall(r"^## (\d+)\.", md_text, re.MULTILINE))
 
 
 # ── 공통 유틸 ────────────────────────────────────────────────
@@ -204,9 +209,10 @@ def run_all(q_filter: int | None, type_filter: str | None, reset: bool):
     x_text  = DATA_PATH.read_text(encoding="utf-8")
     preamble = load_preamble()
 
+    all_questions = extract_all_question_numbers(x_text)
     pairs = [
         (q, code)
-        for q in ALL_QUESTIONS
+        for q in all_questions
         for code in ALL_TYPES
         if (q_filter is None or q == q_filter)
         and (type_filter is None or code == type_filter)
@@ -277,15 +283,19 @@ def run_all(q_filter: int | None, type_filter: str | None, reset: bool):
 
 
 def main():
-    global RESULT_DIR
+    global RESULT_DIR, DATA_PATH
     parser = argparse.ArgumentParser()
     parser.add_argument("--q",      type=int,  help="특정 문항 번호만 실행")
     parser.add_argument("--type",   type=str,  help="특정 유형 코드만 실행 (예: A09)")
     parser.add_argument("--reset",  action="store_true", help="기존 결과 무시하고 재실행")
     parser.add_argument("--outdir", type=str,  default=None,
                         help="결과 저장 디렉토리 (기본: results/full_run)")
+    parser.add_argument("--input",  type=str,  default=None,
+                        help="입력 MD 파일 경로 (기본: data/정보보호개요_X.md)")
     args = parser.parse_args()
 
+    if args.input:
+        DATA_PATH = Path(args.input)
     if args.outdir:
         RESULT_DIR = Path(args.outdir)
 

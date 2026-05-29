@@ -37,3 +37,7 @@ desktop.ini
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# 실행 결과물 (시험지 내용 포함)
+results/
+logs/
