@@ -45,3 +45,7 @@ logs/
 # Claude Code (로컬 전용)
 .claude/scheduled_tasks.lock
 .claude/*.lock
+
+# Tool artifacts
+.playwright-mcp/
+docs/superpowers/

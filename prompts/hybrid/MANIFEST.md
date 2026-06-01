@@ -1,7 +1,7 @@
 # Hybrid Pipeline — 프롬프트 매니페스트
 
 데이터 기반 분석(per-type vs grouped-v2 3방향 비교)으로 도출된 최적 파이프라인.
-20개 유형을 탐지 안정성에 따라 3레이어로 분리.
+21개 유형(A01~A21)을 탐지 안정성에 따라 3레이어로 분리.
 
 ---
 
@@ -37,7 +37,7 @@
 
 ---
 
-## Layer 2 — per-type LLM (210 호출 / 30문항)
+## Layer 2 — per-type LLM (240 호출 / 30문항)
 
 `prompts/per-type/` 폴더의 기존 단일 유형 프롬프트 사용.
 
@@ -50,6 +50,7 @@
 | A12 낙서(유형2) | A12_graffiti_type2.md | A11과 오분류, 100% 미탐 |
 | A16 탈자 | A16_char_dropout.md | grouped 83% 미탐 |
 | A19 특수기호 누락(지문) | A19_special_symbol_missing.md | grouped 100% 미탐 |
+| A21 잘못된 단어 | A21_wrong_word.md | 신규 유형(문맥상 오어휘), per-type 단독 |
 
 ---
 
@@ -59,6 +60,6 @@
 |--------|------|--------|------|
 | Layer 0 | 코드 | 0 | — |
 | Layer 1 | 그룹 LLM | 90 | — |
-| Layer 2 | per-type LLM | 210 | — |
-| **합계** | | **300** | **50% 절감** |
-| 기존 per-type 전체 | | 600 | 기준 |
+| Layer 2 | per-type LLM | 240 | — |
+| **합계** | | **330** | **약 48% 절감** |
+| 기존 per-type 전체 | | 630 | 기준 |

@@ -4,12 +4,25 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  Supabase Studio (dark) design system — dark-only app.
+  Reference: docs/DESIGN.md canvas-night (#1c1c1c) surface track, on-dark text,
+  single emerald primary (#3ecf8e) as the only chromatic event.
+
+  The app runs dark exclusively: <html class="dark"> + tokens defined in :root.
+  Domain tokens: layer badges (L0/L1/L2) + status colors (found/error/hold/filtered),
+  re-tuned for legibility on the dark surface.
+*/
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+
+  /* Inter replaces Circular; system mono for code (DESIGN.md typography.code) */
+  --font-sans: var(--font-inter), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --font-heading: var(--font-inter), "Helvetica Neue", Helvetica, Arial, sans-serif;
+
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -39,6 +52,22 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+
+  /* --- Domain tokens (webapp_frontend_plan.md §2, §6) --- */
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-layer-0: var(--layer-0);
+  --color-layer-0-foreground: var(--layer-0-foreground);
+  --color-layer-1: var(--layer-1);
+  --color-layer-1-foreground: var(--layer-1-foreground);
+  --color-layer-2: var(--layer-2);
+  --color-layer-2-foreground: var(--layer-2-foreground);
+  --color-status-found: var(--status-found);
+  --color-status-error: var(--status-error);
+  --color-status-hold: var(--status-hold);
+  --color-status-filtered: var(--status-filtered);
+
+  /* Square-ish technical radius — buttons land at 6px (DESIGN.md rounded.sm) */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -49,72 +78,66 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+  --radius: 0.375rem; /* 6px base — DESIGN.md "square-ish, never pill" */
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Surface — Supabase Studio dark track (layered near-blacks) */
+  --background: #181818;          /* app canvas */
+  --foreground: #ededed;          /* on-dark text (not pure white) */
+  --card: #1c1c1c;                /* canvas-night — panels */
+  --card-foreground: #ededed;
+  --popover: #232323;             /* elevated chrome (canvas-night-soft+) */
+  --popover-foreground: #ededed;
+
+  /* Emerald primary — near-black text on green stays (brand idiosyncrasy) */
+  --primary: #3ecf8e;             /* colors.primary */
+  --primary-foreground: #171717;  /* colors.on-primary (NOT white) */
+
+  --secondary: #2a2a2a;
+  --secondary-foreground: #ededed;
+  --muted: #232323;
+  --muted-foreground: #8f8f8f;    /* muted helper text on dark */
+  --accent: #2a2a2a;
+  --accent-foreground: #ededed;
+  --destructive: #f5503c;         /* tomato, lifted for dark legibility */
+
+  --border: #2e2e2e;              /* subtle hairline on dark */
+  --input: #2e2e2e;
+  --ring: #3ecf8e;               /* emerald focus ring */
+
+  /* Charts: emerald-led, greyscale support (no decorative color) */
+  --chart-1: #3ecf8e;
+  --chart-2: #a0a0a0;
+  --chart-3: #707070;
+  --chart-4: #505050;
+  --chart-5: #3a3a3a;
+
+  /* Sidebar — slightly distinct deep panel (Supabase two-tone shell) */
+  --sidebar: #1c1c1c;
+  --sidebar-foreground: #ededed;
+  --sidebar-primary: #3ecf8e;
+  --sidebar-primary-foreground: #171717;
+  --sidebar-accent: #2a2a2a;
+  --sidebar-accent-foreground: #ededed;
+  --sidebar-border: #2e2e2e;
+  --sidebar-ring: #3ecf8e;
+
+  /* --- Domain --- */
+  --brand: #3ecf8e;
+  --brand-deep: #24b47e;          /* primary-deep — pressed */
+
+  /* Layer badges (plan §2), re-tuned for the dark surface */
+  --layer-0: #3a3a3a;             /* neutral grey chip — code layer */
+  --layer-0-foreground: #ededed;
+  --layer-1: #8170e6;             /* violet, lifted from #644fc1 */
+  --layer-1-foreground: #ffffff;
+  --layer-2: #5b8bff;             /* indigo, lifted from #054cff */
+  --layer-2-foreground: #ffffff;
+
+  /* Status — color expresses state only (plan §6) */
+  --status-found: #3ecf8e;        /* emerald — detected/confirmed */
+  --status-error: #f5503c;        /* tomato — error/rejected */
+  --status-hold: #8170e6;         /* violet — pending */
+  --status-filtered: #ffdb13;     /* yellow — postprocess-filtered */
 }
 
 @layer base {
@@ -122,7 +145,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-[13px] antialiased;
   }
   html {
     @apply font-sans;

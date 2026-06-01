@@ -1,0 +1,12 @@
+# cert-poc API 백엔드 의존성 — webapp_plan.md §2 백엔드 테이블 기준 (계획 버전 핀)
+fastapi>=0.136.1
+uvicorn[standard]>=0.48.0
+python-multipart>=0.0.20
+sse-starlette>=2.3.0
+aiofiles>=24.1.0
+pdfplumber>=0.11.4
+openpyxl>=3.1.5
+# LLM 공급자
+openai>=1.0.0              # local (OpenAI 호환 서버, EXAONE/gpt-oss)
+anthropic>=0.97.0          # claude (Claude Haiku)
+python-dotenv>=1.0.0       # .env 로더 (src/config.py)

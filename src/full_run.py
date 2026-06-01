@@ -1,5 +1,5 @@
 """
-full_run.py — A01~A20 × 전체 문항 LLM 이상 탐지 러너
+full_run.py — A01~A21 × 전체 문항 LLM 이상 탐지 러너
 
 사용법:
     python src/full_run.py                          # 전체 실행 (기존 결과 스킵)
@@ -38,7 +38,7 @@ MODEL       = CFG["model"]
 MAX_RETRIES = CFG["max_retries"]
 RETRY_DELAY = CFG["retry_delay"]
 
-ALL_TYPES = [f"A{n:02d}" for n in range(1, 21)]
+ALL_TYPES = [f"A{n:02d}" for n in range(1, 22)]  # A01~A21
 
 PROMPT_DIR  = ROOT / "prompts"
 DATA_PATH   = ROOT / "data" / "정보보호개요_X.md"

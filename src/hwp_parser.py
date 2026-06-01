@@ -19,41 +19,63 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 
 # ── kordoc 로컬 경로 ─────────────────────────────────────────
-# 우선순위: .env의 KORDOC_CLI_PATH > npm 캐시 기본 경로
+# 우선순위: .env의 KORDOC_CLI_PATH > npx 캐시 글롭 탐색 (OS 무관)
+import shutil
 
-_NPM_CACHE_CLI = Path.home() / ".npm/_npx/5ea84d466de2b626/node_modules/kordoc/dist/cli.js"
+# npx 캐시 루트 후보 (OS별). 각 하위에 <hash>/node_modules/kordoc/dist/cli.js 존재.
+_NPX_CACHE_ROOTS = [
+    Path.home() / "AppData/Local/npm-cache/_npx",  # Windows
+    Path.home() / ".npm/_npx",                      # Linux/macOS
+]
+
 
 def _find_kordoc_cli() -> Path:
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env")
+
+    # 1) 명시적 환경변수
     env_path = os.getenv("KORDOC_CLI_PATH")
     if env_path:
         p = Path(env_path)
         if p.exists():
             return p
-    if _NPM_CACHE_CLI.exists():
-        return _NPM_CACHE_CLI
+
+    # 2) npx 캐시를 글롭으로 탐색 (해시 디렉터리명은 환경마다 다름)
+    for root in _NPX_CACHE_ROOTS:
+        if not root.exists():
+            continue
+        matches = sorted(root.glob("*/node_modules/kordoc/dist/cli.js"))
+        if matches:
+            return matches[0]
+
     raise FileNotFoundError(
         "kordoc CLI를 찾을 수 없습니다. .env에 KORDOC_CLI_PATH를 설정하거나 "
-        "npx -y kordoc 을 한 번 실행해 캐시를 생성하세요."
+        "`npx -y kordoc <파일>` 을 한 번 실행해 캐시를 생성하세요."
     )
 
+
 def _find_node() -> str:
+    # 1) 명시적 환경변수
     env_node = os.getenv("NODE_BIN")
     if env_node:
         return env_node
+
+    # 2) PATH 탐색 (Windows: node.exe / which 대신 shutil.which — OS 무관)
+    found = shutil.which("node")
+    if found:
+        return found
+
+    # 3) 알려진 설치 경로 (nvm 등)
     for candidate in [
         Path.home() / ".nvm/versions/node/v20.19.5/bin/node",
         Path("/usr/local/bin/node"),
         Path("/usr/bin/node"),
+        Path("C:/Program Files/nodejs/node.exe"),
     ]:
         if candidate.exists():
             return str(candidate)
-    # PATH에서 탐색
-    result = subprocess.run(["which", "node"], capture_output=True, text=True)
-    if result.returncode == 0:
-        return result.stdout.strip()
-    raise FileNotFoundError("node 실행 파일을 찾을 수 없습니다.")
+
+    raise FileNotFoundError("node 실행 파일을 찾을 수 없습니다. PATH에 추가하거나 NODE_BIN 설정.")
 
 
 # ── 핵심: kordoc CLI 호출 ─────────────────────────────────────
