@@ -139,7 +139,7 @@ export function SessionView({ id }: { id: string }) {
         </div>
 
         <TabsContent value="questions" className="min-h-0 flex-1">
-          <div className="grid h-full grid-cols-[minmax(220px,300px)_1fr] divide-x divide-border">
+          <div className="grid h-full grid-cols-[4fr_6fr] divide-x divide-border">
             <QuestionList
               questions={questions}
               results={results}

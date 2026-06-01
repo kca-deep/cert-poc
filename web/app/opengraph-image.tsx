@@ -26,7 +26,7 @@ export default async function Image() {
   const noto = {
     name: 'Noto Sans KR',
     data: notoData,
-    weight: 600,
+    weight: 600 as const,
     style: 'normal' as const,
   }
 
