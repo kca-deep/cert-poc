@@ -66,7 +66,10 @@ export function UploadView() {
   return (
     // 뷰포트 높이를 채우고, 내부에서만 스크롤이 일어나도록 한다 (이중 스크롤 방지).
     <div className="mx-auto flex h-full max-w-3xl flex-col px-6 py-8">
-      <header className={cn("mb-5 shrink-0", ENTER)} style={staggerDelay(0)}>
+      <header
+        className={cn("mb-5 shrink-0 text-center", ENTER)}
+        style={staggerDelay(0)}
+      >
         <h1 className="text-2xl font-medium tracking-tight text-foreground">
           새 분석
         </h1>
@@ -129,7 +132,7 @@ function Steps({ stage }: { stage: Stage }) {
 
   const steps = ["업로드", "파싱 확인", "분석 시작"];
   return (
-    <ol className="flex items-center gap-2 text-[12px]">
+    <ol className="flex items-center justify-center gap-2 text-[12px]">
       {steps.map((label, i) => {
         const active = i === current;
         const done = i < current;

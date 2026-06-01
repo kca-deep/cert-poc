@@ -89,6 +89,25 @@ export default async function Image() {
             <span style={{ color: '#ededed' }}>Cert</span>
             <span style={{ color: '#3ecf8e' }}>QA</span>
           </div>
+          {/* AI 배지 — 무채색 칩. 사이드바 워드마크와 동일 컨셉. */}
+          <div
+            style={{
+              display: 'flex',
+              alignSelf: 'flex-start',
+              marginTop: '10px',
+              padding: '8px 16px',
+              border: '2px solid #3a3a3a',
+              borderRadius: '10px',
+              fontFamily: 'Noto Sans KR',
+              fontWeight: 600,
+              fontSize: 40,
+              letterSpacing: '0.08em',
+              lineHeight: 1,
+              color: '#8f8f8f',
+            }}
+          >
+            AI
+          </div>
         </div>
         <div
           style={{

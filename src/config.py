@@ -22,6 +22,7 @@ def lm_config() -> dict:
         "max_tokens":       int(os.getenv("LLM_MAX_TOKENS",         "16000")),
         "reasoning_effort": os.getenv("LLM_REASONING_EFFORT", "medium"),
         "timeout":          int(os.getenv("LLM_TIMEOUT",            "120")),
+        "connect_timeout":  int(os.getenv("LLM_CONNECT_TIMEOUT",    "5")),
         "max_retries":      int(os.getenv("LLM_MAX_RETRIES",        "1")),
         "retry_delay":      int(os.getenv("LLM_RETRY_DELAY",        "5")),
         # KV 캐시 격리 설정

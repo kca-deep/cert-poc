@@ -127,6 +127,15 @@ async def get_session(session_id: str) -> SessionDetail:
     )
 
 
+# ── DELETE /sessions/{id} ────────────────────────────────────────
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict[str, bool]:
+    """세션 1건 삭제 (questions/anomaly_results/review_actions CASCADE). 없으면 404."""
+    if not db.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True}
+
+
 # ── POST /sessions ───────────────────────────────────────────────
 @router.post("/sessions")
 async def create_session(req: CreateSessionRequest) -> CreateSessionResponse:

@@ -16,6 +16,7 @@ import { mockReviewStore } from "./stores/review";
 import {
   addMockSession,
   completeMockSession,
+  deleteMockSession,
   getMockSessionDetail,
   getMockSessions,
 } from "./mock/fixtures";
@@ -108,6 +109,21 @@ export async function startAnalysis(
   if (!res.ok) throw new Error(`startAnalysis failed: ${res.status}`);
   const { id } = await res.json();
   return id;
+}
+
+/**
+ * Delete a session and all of its data (questions/results/reviews cascade).
+ * A 404 is treated as success (already gone) so the list just refreshes.
+ */
+export async function deleteSession(id: string): Promise<void> {
+  if (USE_MOCK) {
+    deleteMockSession(id);
+    return delay(undefined, 200);
+  }
+  const res = await fetch(`${API_BASE}/sessions/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`deleteSession failed: ${res.status}`);
+  }
 }
 
 /**

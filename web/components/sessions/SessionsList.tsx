@@ -1,15 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
-import { listSessions, queryKeys } from "@/lib/api";
+import { deleteSession, listSessions, queryKeys } from "@/lib/api";
 import { STATUS_META } from "@/lib/constants";
 import type { Session } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { ENTER, staggerDelay } from "@/lib/anim";
@@ -71,12 +83,13 @@ export function SessionsList() {
 function SessionRow({ session }: { session: Session }) {
   const status = STATUS_META[session.status];
   return (
-    <Link
-      href={`/sessions/${session.id}`}
-      className="group flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-3 transition-all hover:border-muted-foreground/40 hover:bg-card/80"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+    <div className="group flex items-center rounded-lg border border-border bg-card pr-2 transition-all hover:border-muted-foreground/40 hover:bg-card/80">
+      <Link
+        href={`/sessions/${session.id}`}
+        className="flex min-w-0 flex-1 items-center gap-4 px-4 py-3"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
           <span className="truncate text-[14px] font-medium text-foreground">
             {session.originalFilename}
           </span>
@@ -121,8 +134,79 @@ function SessionRow({ session }: { session: Session }) {
         <span className="mt-0.5 text-[10px] text-muted-foreground">탐지</span>
       </div>
 
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-    </Link>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+      </Link>
+
+      <DeleteSessionButton session={session} />
+    </div>
+  );
+}
+
+function DeleteSessionButton({ session }: { session: Session }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const isRunning = session.status === "running";
+
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => deleteSession(session.id),
+    onSuccess: () => {
+      toast.success("세션이 삭제되었습니다.");
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      setOpen(false);
+    },
+    onError: () =>
+      toast.error("삭제에 실패했습니다. 서버 연결을 확인해 주세요."),
+  });
+
+  // 진행 중(running) 세션은 백그라운드 파이프라인이 아직 쓰는 중이라 삭제를 막는다.
+  if (isRunning) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        disabled
+        aria-label="진행 중인 세션은 삭제할 수 없습니다"
+        title="진행 중인 세션은 삭제할 수 없습니다"
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label="세션 삭제">
+          <Trash2 className="size-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>세션을 삭제할까요?</DialogTitle>
+          <DialogDescription>
+            <span className="font-medium text-foreground">
+              {session.originalFilename}
+            </span>
+            의 분석·검수 결과가 모두 삭제되며 되돌릴 수 없습니다.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" size="sm">
+              취소
+            </Button>
+          </DialogClose>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => mutate()}
+            disabled={isPending}
+          >
+            {isPending ? "삭제 중…" : "삭제"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

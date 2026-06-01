@@ -58,6 +58,10 @@ export function Sidebar() {
           >
             Cert<span className="text-[var(--brand)]">QA</span>
           </span>
+          {/* AI 배지 — 무채색 칩. 에메랄드(QA) 외 색상 이벤트를 만들지 않는다. */}
+          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none tracking-wide text-muted-foreground">
+            AI
+          </span>
         </Link>
 
         {/* The one filled green CTA */}

@@ -93,6 +93,27 @@ def init_db() -> None:
         _migrate(conn)
 
 
+def reconcile_stuck_sessions() -> int:
+    """
+    미완료(uploading/parsing/running) 상태로 남은 세션을 error 로 정리한다.
+
+    진행은 progress_hub 의 인메모리 daemon 스레드로만 추적되므로, 서버가 재시작되거나
+    분석 중 프로세스가 끊기면 그 상태 전이(done/error)가 영속되지 못한 채 DB 에
+    'running' 이 박제된다(LLM 접속 불가로 매 호출이 블로킹되다 재시작되는 경우 등).
+    새 프로세스 startup 시점에는 _RUNS 가 비어 있어 미완료 행은 모두 고아이므로,
+    여기서 일괄 error 로 내려 목록에서 '분석중'으로 영원히 남는 것을 막는다.
+    (단일 uvicorn 워커 가정 — webapp_plan §0.)
+
+    Returns: 정리된 행 수.
+    """
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE sessions SET status='error' "
+            "WHERE status IN ('uploading','parsing','running')"
+        )
+        return cur.rowcount
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """기존 DB 에 누락된 컬럼을 더한다 (멱등). 신규 컬럼은 여기서만 추가."""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)")}
@@ -200,6 +221,14 @@ def reset_for_rerun(session_id: str, provider: str) -> None:
             (provider, session_id),
         )
         conn.execute("DELETE FROM anomaly_results WHERE session_id = ?", (session_id,))
+
+
+def delete_session(session_id: str) -> bool:
+    """세션 1건 삭제. CASCADE로 questions/anomaly_results/review_actions 동반 삭제.
+    삭제된 행이 있으면 True, 없으면(이미 없음) False."""
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        return cur.rowcount > 0
 
 
 def get_provider(session_id: str) -> str | None:

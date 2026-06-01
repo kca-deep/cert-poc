@@ -253,6 +253,20 @@ export function addMockSession(detail: SessionDetail): void {
   RUNTIME_DETAILS[detail.session.id] = detail;
 }
 
+/**
+ * Remove a session and its detail from both the runtime store and the seeded
+ * fixtures, so the mock list mirrors a real cascade delete.
+ */
+export function deleteMockSession(id: string): void {
+  const ri = RUNTIME_SESSIONS.findIndex((s) => s.id === id);
+  if (ri >= 0) RUNTIME_SESSIONS.splice(ri, 1);
+  delete RUNTIME_DETAILS[id];
+
+  const si = SESSIONS.findIndex((s) => s.id === id);
+  if (si >= 0) SESSIONS.splice(si, 1);
+  delete DETAILS[id];
+}
+
 /** A small rotation of synthetic findings to attach on completion. */
 const SYNTH_FINDINGS: Omit<AnomalyResult, "qNumber">[] = [
   {

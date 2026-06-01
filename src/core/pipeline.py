@@ -116,8 +116,13 @@ class LMCallError(Exception):
 def call_lm_studio(messages: list[dict], cfg: dict, slot_id: int = -1) -> dict:
     if OpenAI is None:
         raise LMCallError("openai 패키지가 필요합니다: pip install openai")
+    import httpx
+    # connect 와 read 타임아웃을 분리한다. 단일 timeout(120s)이면 접속 불가 호스트가
+    # connect 에서 120s 를 통째로 대기해 파이프라인이 사실상 멈춘다(분석중 고착의 원인).
+    # connect 를 짧게(기본 5s) 잡아 unreachable 을 빠르게 LMCallError 로 떨군다.
+    timeout = httpx.Timeout(cfg["timeout"], connect=cfg.get("connect_timeout", 5))
     client = OpenAI(base_url=cfg["base_url"], api_key="lm-studio",
-                    timeout=cfg["timeout"], max_retries=0)
+                    timeout=timeout, max_retries=0)
     extra: dict = {
         "reasoning_effort": cfg["reasoning_effort"],
         "cache_prompt": cfg.get("cache_prompt", False),
@@ -231,6 +236,31 @@ def call_with_retry(messages: list[dict], label: str, cfg: dict,
                 time.sleep(retry_delay)
             else:
                 return {"_error": str(e), "_raw": ""}
+
+
+# ── 사전 헬스체크 (preflight) ─────────────────────────────────
+
+def preflight_local(cfg: dict) -> str | None:
+    """
+    로컬 LLM 서버 접속 가능 여부를 빠르게 점검한다.
+
+    접속 불가(connect 실패/타임아웃)면 사람이 읽을 에러 메시지를 반환하고,
+    접속 가능하면(HTTP 상태코드와 무관하게 응답이 오면) None 을 반환한다.
+    이 검사로 unreachable 한 서버에서 분석을 시작했다가 매 LLM 호출이 connect
+    타임아웃까지 블로킹돼 '분석중'에 고착되는 것을 막는다(시작 즉시 error 처리).
+    """
+    import httpx
+
+    url = cfg["base_url"].rstrip("/") + "/models"
+    try:
+        # 응답 자체가 오면 서버는 살아있음 → 상태코드는 보지 않는다.
+        httpx.get(url, timeout=httpx.Timeout(5.0, connect=3.0))
+        return None
+    except httpx.RequestError as e:
+        return (
+            f"로컬 LLM 서버에 접속할 수 없습니다 ({cfg['base_url']}). "
+            f"서버 실행 여부와 LOCAL_BASE_URL 설정을 확인하세요. [{type(e).__name__}]"
+        )
 
 
 # ── 저장 헬퍼 ─────────────────────────────────────────────────
@@ -459,6 +489,15 @@ def run_pipeline(md_text: str, result_dir: Path, q_filter: int | None = None,
     t_start = time.time()
     try:
         cfg = build_config(provider)
+
+        # 사전 헬스체크: 로컬 LLM 이 닿지 않으면 분석을 시작하지 않고 즉시 error.
+        # (claude 공급자는 외부 API 라 여기서 점검하지 않는다.)
+        if cfg.get("provider") != "claude":
+            msg = preflight_local(cfg)
+            if msg:
+                yield error(msg)
+                return
+
         result_dir = Path(result_dir)
         result_dir.mkdir(parents=True, exist_ok=True)
 

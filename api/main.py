@@ -23,8 +23,11 @@ app = FastAPI(title="cert-poc API", version="0.1.0")
 
 @app.on_event("startup")
 async def _startup() -> None:
-    """SQLite 스키마 생성 (멱등)."""
+    """SQLite 스키마 생성 (멱등) + 끊긴 미완료 세션 정리."""
     db.init_db()
+    # 이전 프로세스에서 분석 중(running 등)이던 세션은 재시작으로 고아가 됐으므로
+    # error 로 내려, 목록에 '분석중'으로 영원히 남는 것을 막는다.
+    db.reconcile_stuck_sessions()
 
 # ── CORS — Next.js (web/) 개발 서버 허용 ─────────────────────────
 app.add_middleware(
