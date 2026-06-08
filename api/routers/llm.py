@@ -31,16 +31,23 @@ class LlmConfigResponse(BaseModel):
 @router.get("/config/llm")
 async def get_llm_config() -> LlmConfigResponse:
     # src/ 는 api.config import 시 sys.path 에 등록되어 있다.
-    from config import resolve_provider, claude_configured, lm_config, claude_config
+    from config import (resolve_provider, claude_configured, lm_config,
+                        claude_config, probe_local_backends)
 
     local = lm_config()
     claude = claude_config()
     claude_ok = claude_configured()
+    # 로컬 후보(8080/8081)를 실시간 프로브 → 토글이 죽은 백엔드를 비활성화하고,
+    # 살아있으면 실제 로딩 모델명(gpt-oss/exaone)을 노출(차수마다 모델이 바뀜).
+    probed = probe_local_backends()
+    local_available = probed is not None
+    local_model = probed[1] if (probed and probed[1]) else local["model"]
     return LlmConfigResponse(
         default=resolve_provider(None),
         claudeConfigured=claude_ok,
         providers=[
-            ProviderMeta(id="local", label="로컬 LLM", model=local["model"], available=True),
+            ProviderMeta(id="local", label="로컬 LLM", model=local_model,
+                         available=local_available),
             ProviderMeta(id="claude", label="Claude Haiku", model=claude["model"],
                          available=claude_ok),
         ],

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 
 import { FileDropzone } from "./FileDropzone";
 import { ParseResultView } from "./ParseResultView";
+import { PipelineGuideLink } from "@/components/pipeline/PipelineGuideLink";
 
 type Stage = "idle" | "parsing" | "parsed" | "starting" | "error";
 
@@ -77,6 +78,9 @@ export function UploadView() {
           시험지를 업로드하면 마크다운으로 파싱하고, 확인 후 윤문 분석을
           시작합니다.
         </p>
+        <div className="mt-2 flex justify-center">
+          <PipelineGuideLink size="xs" />
+        </div>
       </header>
 
       {/* step indicator */}

@@ -10,7 +10,7 @@ import type { LayerProgress, ProgressState } from "@/lib/sse";
 import { LayerBadge } from "@/components/dashboard/LayerBadge";
 import { ANOMALY_TYPES, ANOMALY_TYPE_ORDER, typeMeta } from "@/lib/constants";
 import { Progress } from "@/components/ui/progress";
-import { cn } from "@/lib/utils";
+import { PipelineGuideLink } from "@/components/pipeline/PipelineGuideLink";
 import { Check, Circle, Loader2 } from "lucide-react";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -215,6 +215,7 @@ export function PipelineProgress({
         )}
 
         <div className="ml-auto flex items-center gap-3">
+          <PipelineGuideLink size="xs" />
           <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
             {state.elapsedSeconds}s
           </span>

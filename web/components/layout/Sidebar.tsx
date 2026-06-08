@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, ScanSearch } from "lucide-react";
+import { Plus, ScanSearch, Workflow } from "lucide-react";
 
 import { listSessions, queryKeys } from "@/lib/api";
 import { STATUS_META } from "@/lib/constants";
@@ -19,6 +19,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/sessions", label: "세션 목록", icon: ScanSearch },
+  { href: "/pipeline", label: "파이프라인 안내", icon: Workflow },
 ];
 
 /**

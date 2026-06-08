@@ -54,6 +54,7 @@ export interface Session {
   foundCount: number;
   elapsedSeconds?: number;
   provider?: LlmProvider;
+  model?: string | null; // 분석 시점 실제 모델 id (gpt-oss/exaone 구분), 구 세션은 null
 }
 
 export interface Question {

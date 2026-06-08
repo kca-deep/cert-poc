@@ -48,6 +48,56 @@ def claude_config() -> dict:
 VALID_PROVIDERS = ("local", "claude")
 
 
+def local_base_urls() -> list[str]:
+    """
+    로컬 LLM 후보 base_url 목록(자동탐지 순서). 첫 healthy 서버를 채택한다.
+    하드코딩 없이 .env 로만 구성한다:
+
+    - LOCAL_BASE_URLS(콤마구분)가 있으면 그 목록을 순서대로(= 우선순위) 사용한다.
+      예: gpt-oss(8080), exaone(8081) 두 엔드포인트를 모두 적어두면 분석 전
+          health 체크로 살아있는 쪽을 자동 채택한다.
+    - 없으면 단일 LOCAL_BASE_URL 만 후보로 쓴다(하위호환).
+    """
+    multi = os.getenv("LOCAL_BASE_URLS", "").strip()
+    if multi:
+        urls = [u.strip() for u in multi.split(",") if u.strip()]
+        return list(dict.fromkeys(urls))
+    return [os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:8080/v1").strip()]
+
+
+def probe_backend(base_url: str, connect: float = 3.0) -> str | None:
+    """
+    OpenAI 호환 서버 1개를 GET {base_url}/models 로 프로브한다.
+    응답이 오면(=살아있음) 로딩된 model id(파싱 실패 시 빈 문자열)를, 접속 불가면
+    None 을 반환한다. connect 타임아웃을 짧게 잡아 죽은 포트를 빠르게 넘긴다.
+    """
+    import httpx
+
+    url = base_url.rstrip("/") + "/models"
+    try:
+        resp = httpx.get(url, timeout=httpx.Timeout(5.0, connect=connect))
+    except httpx.RequestError:
+        return None
+    try:
+        models = resp.json().get("data") or []
+        return (models[0].get("id") or "") if models else ""
+    except Exception:  # noqa: BLE001 - 살아있으나 모델 목록 파싱 실패
+        return ""
+
+
+def probe_local_backends(candidates: list[str] | None = None) -> tuple[str, str] | None:
+    """
+    후보 base_url 들을 순서대로 프로브해 첫 healthy 서버의 (base_url, model_id)를
+    반환한다. 전부 접속 불가면 None. 첫 healthy 에서 멈추므로 8080 이 살아있으면
+    8081 은 프로브하지 않는다(공통 경로 지연 없음).
+    """
+    for url in (candidates or local_base_urls()):
+        model = probe_backend(url)
+        if model is not None:
+            return url, model
+    return None
+
+
 def resolve_provider(explicit: str | None = None) -> str:
     """활성 공급자 결정: 명시값 > LLM_PROVIDER 환경변수 > 'local'."""
     p = (explicit or os.getenv("LLM_PROVIDER", "local") or "local").lower()
@@ -68,6 +118,8 @@ def build_config(provider: str | None = None) -> dict:
     provider = resolve_provider(provider)
     cfg = lm_config()
     c = claude_config()
+    # 자동탐지 후보. 실제 채택 base_url/model 은 preflight_local() 이 프로브로 주입.
+    cfg["base_url_candidates"] = local_base_urls()
     cfg["provider"]          = provider
     cfg["claude_model"]      = c["model"]
     cfg["claude_max_tokens"] = c["max_tokens"]

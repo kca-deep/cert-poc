@@ -210,6 +210,59 @@ export async function upsertReview(
   if (!res.ok) throw new Error(`upsertReview failed: ${res.status}`);
 }
 
+/**
+ * 검수 '확인' 항목만 검증결과 파일(Excel/PDF)로 내려받는다. 백엔드가 파일명
+ * (원본문서명_timestamp_검증결과.{xlsx|pdf})과 바이트를 만들어 주므로, 여기서는
+ * blob 과 Content-Disposition 파일명을 반환만 한다. 확인 항목이 없으면(400) 등
+ * 오류 응답은 detail 메시지로 throw 한다. mock 모드는 백엔드 의존이라 미지원.
+ */
+export async function exportReviews(
+  sessionId: string,
+  format: "xlsx" | "pdf"
+): Promise<{ blob: Blob; filename: string }> {
+  if (USE_MOCK) {
+    throw new Error("내보내기는 백엔드 연결 후 제공됩니다.");
+  }
+  const res = await fetch(
+    `${API_BASE}/sessions/${sessionId}/export?format=${format}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) {
+    const msg = await res
+      .json()
+      .then((j) => j?.detail as string | undefined)
+      .catch(() => undefined);
+    throw new Error(msg ?? `내보내기 실패: ${res.status}`);
+  }
+  const blob = await res.blob();
+  const filename =
+    parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
+    `검증결과.${format}`;
+  return { blob, filename };
+}
+
+/** Content-Disposition 에서 filename*(RFC 5987) 우선, 없으면 filename 파싱. */
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  if (plain) {
+    try {
+      return decodeURIComponent(plain[1]);
+    } catch {
+      return plain[1];
+    }
+  }
+  return null;
+}
+
 let _mockId = 0;
 function mockIdCounter(): number {
   return ++_mockId;

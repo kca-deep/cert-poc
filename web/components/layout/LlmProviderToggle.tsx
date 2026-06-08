@@ -18,7 +18,7 @@ import { HardDrive, Sparkles } from "lucide-react";
 
 import { getLlmConfig, queryKeys } from "@/lib/api";
 import { useProviderStore } from "@/lib/stores/provider";
-import type { LlmProvider } from "@/lib/types";
+import type { LlmConfig, LlmProvider } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -48,7 +48,12 @@ export function useLlmProvider() {
   }, [config?.default, hydrateDefault]);
 
   const claudeAvailable = config ? config.claudeConfigured : true;
-  return { provider, setProvider, config, claudeAvailable };
+  // 로컬 가용성은 /config/llm 의 실시간 프로브 결과(providers[local].available)에서 읽는다.
+  // config 로딩 전에는 true 로 두어 깜빡임을 막는다(서버 응답 후 정확값으로 갱신).
+  const localAvailable = config
+    ? (config.providers.find((p) => p.id === "local")?.available ?? true)
+    : true;
+  return { provider, setProvider, config, claudeAvailable, localAvailable };
 }
 
 export function LlmProviderToggle({
@@ -58,7 +63,7 @@ export function LlmProviderToggle({
   className?: string;
   size?: "sm" | "md";
 }) {
-  const { provider, setProvider, claudeAvailable } = useLlmProvider();
+  const { provider, setProvider, claudeAvailable, localAvailable } = useLlmProvider();
   const activeIndex = OPTIONS.findIndex((o) => o.id === provider);
 
   const pad = size === "sm" ? "p-0.5" : "p-1";
@@ -90,7 +95,13 @@ export function LlmProviderToggle({
 
       {OPTIONS.map(({ id, label, short, Icon }) => {
         const active = id === provider;
-        const disabled = id === "claude" && !claudeAvailable;
+        const disabled =
+          (id === "claude" && !claudeAvailable) ||
+          (id === "local" && !localAvailable);
+        const reason =
+          id === "claude"
+            ? `${label} — 서버에 ANTHROPIC_API_KEY 가 설정되지 않았습니다.`
+            : `${label} — 서버 응답이 없습니다. LLM 서버(LOCAL_BASE_URLS) 실행 여부를 확인하세요.`;
         const btn = (
           <button
             key={id}
@@ -117,9 +128,7 @@ export function LlmProviderToggle({
           return (
             <Tooltip key={id}>
               <TooltipTrigger asChild>{btn}</TooltipTrigger>
-              <TooltipContent>
-                {label} — 서버에 ANTHROPIC_API_KEY 가 설정되지 않았습니다.
-              </TooltipContent>
+              <TooltipContent>{reason}</TooltipContent>
             </Tooltip>
           );
         }
@@ -132,4 +141,47 @@ export function LlmProviderToggle({
 /** 세션 헤더 등에서 활성 공급자를 읽기 전용 배지로 보여줄 때 사용. */
 export function providerLabel(p: LlmProvider | undefined): string {
   return OPTIONS.find((o) => o.id === p)?.label ?? "로컬 LLM";
+}
+
+/**
+ * 모델 ID(예: "EXAONE-3.5-32B", "claude-haiku-4-5") → 사람이 읽을 짧은 이름.
+ * 로컬 모델이 차수마다 바뀔 수 있어(EXAONE/gpt-oss) 알려진 패턴만 정규화하고,
+ * 매칭이 없으면 모델 ID 를 그대로 노출한다.
+ */
+function prettyModel(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes("exaone")) return "EXAONE";
+  if (m.includes("haiku")) return "Claude Haiku";
+  if (m.includes("sonnet")) return "Claude Sonnet";
+  if (m.includes("opus")) return "Claude Opus";
+  if (m.includes("gpt-oss")) return "gpt-oss";
+  return model;
+}
+
+/**
+ * provider → 현재 옵션(GET /config/llm)에 맞춘 실제 모델 라벨.
+ * config 가 있으면 로딩된 모델명(EXAONE 등)을, 없으면 정적 공급자 라벨로 폴백.
+ * (토글의 "현재 사용할 모델" 표시용 — 실시간 상태)
+ */
+export function providerModelLabel(
+  p: LlmProvider | undefined,
+  config?: LlmConfig | null,
+): string {
+  const meta = config?.providers.find((o) => o.id === p);
+  if (meta?.model) return prettyModel(meta.model);
+  return providerLabel(p);
+}
+
+/**
+ * 세션이 "분석 시점에 실제로 사용한" 모델 라벨.
+ * 저장된 model id 가 있으면 그것을(gpt-oss/exaone 구분), 없으면(구 세션) 일반
+ * 공급자 라벨로 폴백한다. 실시간 config 를 보지 않으므로 현재 서빙 모델로 오표기되지
+ * 않는다 — 세션 목록/헤더는 이 함수를 쓴다.
+ */
+export function sessionModelLabel(
+  p: LlmProvider | undefined,
+  model?: string | null,
+): string {
+  if (model) return prettyModel(model);
+  return providerLabel(p);
 }

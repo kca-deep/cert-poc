@@ -5,7 +5,8 @@ python-multipart>=0.0.20
 sse-starlette>=2.3.0
 aiofiles>=24.1.0
 pdfplumber>=0.11.4
-openpyxl>=3.1.5
+openpyxl>=3.1.5            # 검수결과 Excel export
+reportlab>=4.0.0          # 검수결과 PDF export (내장 CID 한글폰트 — 폐쇄망 OK)
 # LLM 공급자
 openai>=1.0.0              # local (OpenAI 호환 서버, EXAONE/gpt-oss)
 anthropic>=0.97.0          # claude (Claude Haiku)

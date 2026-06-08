@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     found_count       INTEGER NOT NULL DEFAULT 0,
     elapsed_seconds   REAL,
     md_text           TEXT NOT NULL DEFAULT '',
-    provider          TEXT NOT NULL DEFAULT 'local'
+    provider          TEXT NOT NULL DEFAULT 'local',
+    model             TEXT
 );
 
 CREATE TABLE IF NOT EXISTS questions (
@@ -121,6 +122,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'local'"
         )
+    if "model" not in cols:
+        # 분석 시점에 실제 사용된 모델 id (gpt-oss/exaone 구분용). 기존 행은 NULL →
+        # 프론트가 일반 라벨로 폴백(어느 로컬 모델이었는지 사후 복구 불가).
+        conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT")
 
 
 # ── 행 → camelCase dict 매핑 ─────────────────────────────────────
@@ -136,6 +141,7 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "foundCount": row["found_count"],
         "elapsedSeconds": row["elapsed_seconds"],
         "provider": (row["provider"] if "provider" in row.keys() else "local"),
+        "model": (row["model"] if "model" in row.keys() else None),
     }
 
 
@@ -172,8 +178,8 @@ def create_session(session: dict[str, Any], md_text: str,
         conn.execute(
             """INSERT OR REPLACE INTO sessions
                (id, created_at, original_filename, file_type, status,
-                question_count, found_count, elapsed_seconds, md_text, provider)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                question_count, found_count, elapsed_seconds, md_text, provider, model)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 session["id"],
                 session["createdAt"],
@@ -185,6 +191,7 @@ def create_session(session: dict[str, Any], md_text: str,
                 session.get("elapsedSeconds"),
                 _safe(md_text),
                 session.get("provider", "local"),
+                session.get("model"),
             ),
         )
         conn.executemany(
@@ -210,15 +217,15 @@ def update_session_status(session_id: str, status: str,
         conn.execute(f"UPDATE sessions SET {', '.join(sets)} WHERE id = ?", vals)
 
 
-def reset_for_rerun(session_id: str, provider: str) -> None:
-    """재실행 준비: 상태를 running 으로, 집계 초기화, 공급자 갱신, 기존 결과 삭제."""
+def reset_for_rerun(session_id: str, provider: str, model: str | None = None) -> None:
+    """재실행 준비: 상태를 running 으로, 집계 초기화, 공급자·모델 갱신, 기존 결과 삭제."""
     with get_conn() as conn:
         conn.execute(
             """UPDATE sessions
                SET status='running', found_count=0, elapsed_seconds=NULL,
-                   provider=?
+                   provider=?, model=?
                WHERE id=?""",
-            (provider, session_id),
+            (provider, model, session_id),
         )
         conn.execute("DELETE FROM anomaly_results WHERE session_id = ?", (session_id,))
 
@@ -333,6 +340,53 @@ def upsert_review(session_id: str, q_number: int, type_code: str,
             (session_id, int(q_number), type_code, action,
              _safe(comment) if isinstance(comment, str) else comment, updated_at),
         )
+
+
+def list_found_with_review(session_id: str) -> list[dict[str, Any]]:
+    """
+    탐지된(found=1) 모든 항목 + 검수상태를 조인해 반환 (export 전용).
+
+    anomaly_results(found) ⟕ review_actions 를 (q_number, type_code) 로 묶어,
+    layer/confidence/issues(원문·의심·제안)·filtered 에 검수 결정(action/comment)을
+    덧붙인다. 미검수 항목은 action/comment 가 None. issues 는 JSON 파싱해 돌려준다.
+
+    export.py 가 이 결과로 '확인 항목만(전부 확인 시)' vs '전체(미확인·일부확인 시)'를
+    결정한다 — DB 는 전체를 주고 필터 정책은 export 가 갖는다(단일 소스).
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT a.q_number, a.type_code, a.layer, a.confidence,
+                      a.issues, a.filtered, r.action, r.comment
+               FROM anomaly_results a
+               LEFT JOIN review_actions r
+                 ON r.session_id = a.session_id
+                AND r.q_number  = a.q_number
+                AND r.type_code = a.type_code
+               WHERE a.session_id = ? AND a.found = 1
+               ORDER BY a.q_number, a.type_code""",
+            (session_id,),
+        ).fetchall()
+    return [
+        {
+            "qNumber": r["q_number"],
+            "typeCode": r["type_code"],
+            "layer": r["layer"],
+            "confidence": r["confidence"],
+            "issues": json.loads(r["issues"] or "[]") if r["issues"] else [],
+            "filtered": bool(r["filtered"]),
+            "action": r["action"],
+            "comment": r["comment"],
+        }
+        for r in rows
+    ]
+
+
+def get_original_filename(session_id: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT original_filename FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+    return row["original_filename"] if row else None
 
 
 def get_md_text(session_id: str) -> str | None:

@@ -216,6 +216,58 @@ def call_claude(messages: list[dict], cfg: dict) -> dict:
     return _extract_json(raw, finish=getattr(resp, "stop_reason", "") or "")
 
 
+_ISSUE_REQUIRED = ("location", "original", "suspected")
+
+
+def _normalize_issue(raw: object) -> dict | None:
+    """
+    LLM issue 1건을 출력 계약(output_schema)에 맞춰 교정한다(저장 전 방어).
+
+    - extra: dict 가 아니면(문자열 등) {'note': str} 로 감싸고, 빈값은 None.
+      (읽기 단계 pydantic Issue.extra: dict|None 거부로 GET 500 나던 결함 차단)
+    - location/original/suspected: 비-str 이면 str() 강제.
+    - 필수 3키가 없으면 드롭(None). 미지의 보조키는 보존(차수 일반화).
+    """
+    if not isinstance(raw, dict):
+        return None
+    out = dict(raw)
+    if "extra" in out:
+        ex = out["extra"]
+        if ex is None or isinstance(ex, dict):
+            out["extra"] = ex
+        else:
+            s = str(ex).strip()
+            out["extra"] = {"note": s} if s else None
+    for k in _ISSUE_REQUIRED:
+        if k in out and not isinstance(out[k], str):
+            out[k] = str(out[k])
+    return out if all(k in out for k in _ISSUE_REQUIRED) else None
+
+
+def _normalize_issues(issues: object) -> list[dict]:
+    """issues 배열을 정규화한다. list 가 아니면 빈 배열, 깨진 issue 는 제거."""
+    if not isinstance(issues, list):
+        return []
+    return [n for n in (_normalize_issue(i) for i in issues) if n is not None]
+
+
+def _normalize_result(obj: dict) -> dict:
+    """
+    LLM 응답 dict 의 issues 를 정규화한다. Layer2(top-level issues)와
+    Layer1(results[].issues) 두 형태를 모두 처리한다(local/claude 공통).
+    """
+    if not isinstance(obj, dict) or "_error" in obj:
+        return obj
+    if "issues" in obj:
+        obj["issues"] = _normalize_issues(obj["issues"])
+    subs = obj.get("results")
+    if isinstance(subs, list):
+        for sub in subs:
+            if isinstance(sub, dict) and "issues" in sub:
+                sub["issues"] = _normalize_issues(sub["issues"])
+    return obj
+
+
 def call_with_retry(messages: list[dict], label: str, cfg: dict,
                     slot_id: int = -1) -> dict | None:
     max_retries = cfg["max_retries"]
@@ -224,8 +276,8 @@ def call_with_retry(messages: list[dict], label: str, cfg: dict,
     for attempt in range(max_retries + 1):
         try:
             if use_claude:
-                return call_claude(messages, cfg)
-            return call_lm_studio(messages, cfg, slot_id=slot_id)
+                return _normalize_result(call_claude(messages, cfg))
+            return _normalize_result(call_lm_studio(messages, cfg, slot_id=slot_id))
         except LMCallError as e:
             if attempt < max_retries:
                 time.sleep(retry_delay)
@@ -242,25 +294,28 @@ def call_with_retry(messages: list[dict], label: str, cfg: dict,
 
 def preflight_local(cfg: dict) -> str | None:
     """
-    로컬 LLM 서버 접속 가능 여부를 빠르게 점검한다.
+    로컬 LLM 후보(8080/8081 등)를 자동탐지하고 cfg 에 채택 백엔드를 주입한다.
 
-    접속 불가(connect 실패/타임아웃)면 사람이 읽을 에러 메시지를 반환하고,
-    접속 가능하면(HTTP 상태코드와 무관하게 응답이 오면) None 을 반환한다.
-    이 검사로 unreachable 한 서버에서 분석을 시작했다가 매 LLM 호출이 connect
-    타임아웃까지 블로킹돼 '분석중'에 고착되는 것을 막는다(시작 즉시 error 처리).
+    base_url_candidates 를 순서대로 프로브해 첫 healthy 서버의 base_url 과 실제
+    로딩 모델을 cfg["base_url"]/cfg["model"] 에 덮어쓰고 None 을 반환한다. 전부
+    접속 불가면 사람이 읽을 에러 메시지를 반환한다. 이 검사로 unreachable 한
+    서버에서 분석을 시작했다가 매 LLM 호출이 connect 타임아웃까지 블로킹돼
+    '분석중'에 고착되는 것을 막는다(시작 즉시 error 처리).
     """
-    import httpx
+    from config import probe_local_backends
 
-    url = cfg["base_url"].rstrip("/") + "/models"
-    try:
-        # 응답 자체가 오면 서버는 살아있음 → 상태코드는 보지 않는다.
-        httpx.get(url, timeout=httpx.Timeout(5.0, connect=3.0))
-        return None
-    except httpx.RequestError as e:
+    candidates = cfg.get("base_url_candidates") or [cfg["base_url"]]
+    resolved = probe_local_backends(candidates)
+    if resolved is None:
         return (
-            f"로컬 LLM 서버에 접속할 수 없습니다 ({cfg['base_url']}). "
-            f"서버 실행 여부와 LOCAL_BASE_URL 설정을 확인하세요. [{type(e).__name__}]"
+            f"로컬 LLM 서버에 접속할 수 없습니다 ({', '.join(candidates)}). "
+            f"gpt-oss(8080)/exaone(8081) 서버 실행 여부를 확인하세요."
         )
+    base_url, model = resolved
+    cfg["base_url"] = base_url
+    if model:  # 살아있는 서버가 보고한 실제 모델 id 채택(.env 값보다 우선)
+        cfg["model"] = model
+    return None
 
 
 # ── 저장 헬퍼 ─────────────────────────────────────────────────

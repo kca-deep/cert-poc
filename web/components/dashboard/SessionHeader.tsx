@@ -1,16 +1,24 @@
 "use client";
 
+import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
-import { FileSpreadsheet, FileDown, HardDrive, Sparkles } from "lucide-react";
+import {
+  FileSpreadsheet,
+  FileDown,
+  HardDrive,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 
+import { exportReviews } from "@/lib/api";
 import { STATUS_META } from "@/lib/constants";
 import type { Session } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { RerunButton } from "./RerunControls";
-import { providerLabel } from "@/components/layout/LlmProviderToggle";
+import { sessionModelLabel } from "@/components/layout/LlmProviderToggle";
 
 const TONE_STYLE: Record<string, string> = {
   done: "text-[var(--status-found)] bg-[color-mix(in_oklab,var(--status-found)_14%,transparent)]",
@@ -30,8 +38,21 @@ export function SessionHeader({
 }) {
   const status = STATUS_META[session.status];
 
-  const stub = (what: string) => () =>
-    toast.info(`${what} 내보내기는 백엔드 연결 후 제공됩니다.`);
+  // 검수 '확인' 항목만 검증결과 파일로 내려받기. 백엔드가 파일명/바이트를 만든다.
+  const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
+  const doExport = (format: "xlsx" | "pdf") => async () => {
+    if (exporting) return; // 중복 클릭 방지
+    setExporting(format);
+    try {
+      const { blob, filename } = await exportReviews(session.id, format);
+      saveBlob(blob, filename);
+      toast.success(`${filename} 내려받기 완료`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "내보내기에 실패했습니다.");
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <header
@@ -99,7 +120,7 @@ export function SessionHeader({
             ) : (
               <HardDrive className="size-3 text-muted-foreground" />
             )}
-            {providerLabel(session.provider)}
+            {sessionModelLabel(session.provider, session.model)}
           </span>
           <span>·</span>
           <span>
@@ -117,15 +138,47 @@ export function SessionHeader({
           <RerunButton sessionId={session.id} />
         )}
         {/* 축약 시 라벨을 숨겨 아이콘만 → 가로 공간 확보(컨텐츠 영역 확장) */}
-        <Button variant="outline" size="sm" onClick={stub("Excel")}>
-          <FileSpreadsheet className="size-3.5" />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={doExport("xlsx")}
+          disabled={exporting !== null}
+          title="확인 항목만 Excel(.xlsx)로 내보내기"
+        >
+          {exporting === "xlsx" ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <FileSpreadsheet className="size-3.5" />
+          )}
           {!condensed && "Excel"}
         </Button>
-        <Button variant="outline" size="sm" onClick={stub("PDF")}>
-          <FileDown className="size-3.5" />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={doExport("pdf")}
+          disabled={exporting !== null}
+          title="확인 항목만 PDF로 내보내기"
+        >
+          {exporting === "pdf" ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <FileDown className="size-3.5" />
+          )}
           {!condensed && "PDF"}
         </Button>
       </div>
     </header>
   );
+}
+
+/** blob 을 임시 object URL + 앵커 클릭으로 내려받는다 (클라이언트 전용). */
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
