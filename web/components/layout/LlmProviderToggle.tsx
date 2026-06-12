@@ -14,7 +14,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { HardDrive, Sparkles } from "lucide-react";
+import { Cloud, HardDrive, Sparkles } from "lucide-react";
 
 import { getLlmConfig, queryKeys } from "@/lib/api";
 import { useProviderStore } from "@/lib/stores/provider";
@@ -29,6 +29,7 @@ import {
 const OPTIONS: { id: LlmProvider; label: string; short: string; Icon: typeof HardDrive }[] = [
   { id: "local", label: "로컬 LLM", short: "로컬", Icon: HardDrive },
   { id: "claude", label: "Claude Haiku", short: "Haiku", Icon: Sparkles },
+  { id: "clovax", label: "HyperCLOVA X", short: "CLOVA", Icon: Cloud },
 ];
 
 /** 토글 상태 + 서버 메타를 묶어 반환하는 공유 훅. */
@@ -48,12 +49,13 @@ export function useLlmProvider() {
   }, [config?.default, hydrateDefault]);
 
   const claudeAvailable = config ? config.claudeConfigured : true;
+  const clovaxAvailable = config ? config.clovaxConfigured : true;
   // 로컬 가용성은 /config/llm 의 실시간 프로브 결과(providers[local].available)에서 읽는다.
   // config 로딩 전에는 true 로 두어 깜빡임을 막는다(서버 응답 후 정확값으로 갱신).
   const localAvailable = config
     ? (config.providers.find((p) => p.id === "local")?.available ?? true)
     : true;
-  return { provider, setProvider, config, claudeAvailable, localAvailable };
+  return { provider, setProvider, config, claudeAvailable, clovaxAvailable, localAvailable };
 }
 
 export function LlmProviderToggle({
@@ -63,22 +65,27 @@ export function LlmProviderToggle({
   className?: string;
   size?: "sm" | "md";
 }) {
-  const { provider, setProvider, claudeAvailable, localAvailable } = useLlmProvider();
-  const activeIndex = OPTIONS.findIndex((o) => o.id === provider);
+  const { provider, setProvider, claudeAvailable, clovaxAvailable, localAvailable } =
+    useLlmProvider();
+  const cols = OPTIONS.length;
+  const activeIndex = Math.max(0, OPTIONS.findIndex((o) => o.id === provider));
 
   const pad = size === "sm" ? "p-0.5" : "p-1";
   const seg = size === "sm" ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-[12px]";
   const icon = size === "sm" ? "size-3" : "size-3.5";
+  // thumb 너비 = (트랙 내부폭)/cols. 내부폭은 좌우 패딩(sm 2px·md 4px → 총 4px·8px)을 뺀 값.
+  const padTotal = size === "sm" ? 4 : 8;
 
   return (
     <div
       role="radiogroup"
       aria-label="LLM 공급자"
       className={cn(
-        "relative inline-grid grid-cols-2 rounded-full border border-border bg-secondary/60",
+        "relative inline-grid rounded-full border border-border bg-secondary/60",
         pad,
         className
       )}
+      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
     >
       {/* sliding thumb — 활성 세그먼트로 이동 (tweakcn 토글의 트랜지션 차용) */}
       <span
@@ -88,8 +95,8 @@ export function LlmProviderToggle({
           size === "sm" && "inset-y-0.5 left-0.5"
         )}
         style={{
-          width: `calc(50% - ${size === "sm" ? "2px" : "4px"})`,
-          transform: activeIndex === 1 ? "translateX(100%)" : "translateX(0)",
+          width: `calc(${100 / cols}% - ${padTotal}px / ${cols})`,
+          transform: `translateX(${activeIndex * 100}%)`,
         }}
       />
 
@@ -97,11 +104,14 @@ export function LlmProviderToggle({
         const active = id === provider;
         const disabled =
           (id === "claude" && !claudeAvailable) ||
+          (id === "clovax" && !clovaxAvailable) ||
           (id === "local" && !localAvailable);
         const reason =
           id === "claude"
             ? `${label} — 서버에 ANTHROPIC_API_KEY 가 설정되지 않았습니다.`
-            : `${label} — 서버 응답이 없습니다. LLM 서버(LOCAL_BASE_URLS) 실행 여부를 확인하세요.`;
+            : id === "clovax"
+              ? `${label} — 서버에 CLOVASTUDIO_API_KEY 가 설정되지 않았습니다.`
+              : `${label} — 서버 응답이 없습니다. LLM 서버(LOCAL_BASE_URLS) 실행 여부를 확인하세요.`;
         const btn = (
           <button
             key={id}
@@ -155,6 +165,7 @@ function prettyModel(model: string): string {
   if (m.includes("sonnet")) return "Claude Sonnet";
   if (m.includes("opus")) return "Claude Opus";
   if (m.includes("gpt-oss")) return "gpt-oss";
+  if (m.includes("hcx") || m.includes("clova")) return "HyperCLOVA X";
   return model;
 }
 

@@ -153,9 +153,11 @@ export async function getLlmConfig(): Promise<LlmConfig | null> {
     return delay({
       default: "local",
       claudeConfigured: true,
+      clovaxConfigured: true,
       providers: [
         { id: "local", label: "로컬 LLM", model: "exaone-3.5-32b", available: true },
         { id: "claude", label: "Claude Haiku", model: "claude-haiku-4-5", available: true },
+        { id: "clovax", label: "HyperCLOVA X", model: "HCX-005", available: true },
       ],
     });
   }

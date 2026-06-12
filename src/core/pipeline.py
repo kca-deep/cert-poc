@@ -139,6 +139,31 @@ def call_lm_studio(messages: list[dict], cfg: dict, slot_id: int = -1) -> dict:
     return _extract_json(raw, finish=finish)
 
 
+def call_clova(messages: list[dict], cfg: dict) -> dict:
+    """
+    Naver HyperCLOVA X(CLOVA Studio) 호출. CLOVA Studio 는 OpenAI 호환이라 동일한
+    OpenAI 클라이언트를 쓰되, base_url 과 'nv-' Bearer 키가 다르고 llama.cpp 전용
+    extra_body(reasoning_effort/cache_prompt/slot_id)는 보내지 않는다.
+    """
+    if OpenAI is None:
+        raise LMCallError("openai 패키지가 필요합니다: pip install openai")
+    import httpx
+
+    api_key = cfg.get("clova_api_key")
+    if not api_key:
+        raise LMCallError("CLOVASTUDIO_API_KEY 가 설정되지 않았습니다.")
+    timeout = httpx.Timeout(cfg["timeout"], connect=cfg.get("connect_timeout", 5))
+    client = OpenAI(base_url=cfg["clova_base_url"], api_key=api_key,
+                    timeout=timeout, max_retries=0)
+    resp = client.chat.completions.create(
+        model=cfg["clova_model"], messages=messages,
+        temperature=cfg["temperature"], max_tokens=cfg["clova_max_tokens"],
+    )
+    raw = (resp.choices[0].message.content or "").strip()
+    finish = resp.choices[0].finish_reason
+    return _extract_json(raw, finish=finish)
+
+
 def _loads_first_json(s: str) -> dict | None:
     """
     문자열에서 첫 JSON 값만 파싱한다 (뒤따르는 여분 데이터는 무시).
@@ -272,11 +297,13 @@ def call_with_retry(messages: list[dict], label: str, cfg: dict,
                     slot_id: int = -1) -> dict | None:
     max_retries = cfg["max_retries"]
     retry_delay = cfg["retry_delay"]
-    use_claude = cfg.get("provider") == "claude"
+    provider = cfg.get("provider")
     for attempt in range(max_retries + 1):
         try:
-            if use_claude:
+            if provider == "claude":
                 return _normalize_result(call_claude(messages, cfg))
+            if provider == "clovax":
+                return _normalize_result(call_clova(messages, cfg))
             return _normalize_result(call_lm_studio(messages, cfg, slot_id=slot_id))
         except LMCallError as e:
             if attempt < max_retries:
@@ -546,8 +573,8 @@ def run_pipeline(md_text: str, result_dir: Path, q_filter: int | None = None,
         cfg = build_config(provider)
 
         # 사전 헬스체크: 로컬 LLM 이 닿지 않으면 분석을 시작하지 않고 즉시 error.
-        # (claude 공급자는 외부 API 라 여기서 점검하지 않는다.)
-        if cfg.get("provider") != "claude":
+        # (claude/clovax 는 외부 API 라 여기서 localhost 프로브를 하지 않는다.)
+        if cfg.get("provider") == "local":
             msg = preflight_local(cfg)
             if msg:
                 yield error(msg)

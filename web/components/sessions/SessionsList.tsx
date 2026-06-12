@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
-import { ChevronRight, HardDrive, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ChevronRight, Cloud, HardDrive, Plus, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { deleteSession, listSessions, queryKeys } from "@/lib/api";
@@ -114,6 +114,8 @@ function SessionRow({ session }: { session: Session }) {
           <span className="inline-flex items-center gap-1 text-foreground/80">
             {session.provider === "claude" ? (
               <Sparkles className="size-3 text-[var(--layer-1)]" />
+            ) : session.provider === "clovax" ? (
+              <Cloud className="size-3 text-[var(--layer-2)]" />
             ) : (
               <HardDrive className="size-3 text-muted-foreground" />
             )}

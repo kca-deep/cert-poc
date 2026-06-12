@@ -85,7 +85,7 @@ def main():
     parser.add_argument("--q",      type=int, default=None)
     parser.add_argument("--reset",  action="store_true")
     parser.add_argument("--outdir", type=str, default=None)
-    parser.add_argument("--provider", choices=("local", "claude"), default=None,
+    parser.add_argument("--provider", choices=("local", "claude", "clovax"), default=None,
                         help="LLM 공급자 (미지정 시 .env 의 LLM_PROVIDER)")
     args = parser.parse_args()
 

@@ -57,6 +57,9 @@ import 하는 순서를 깨지 말 것.
 
 - **`local`**: OpenAI 호환 서버(EXAONE / gpt-oss, llama.cpp·LM Studio `:8080`). 폐쇄망 기본.
 - **`claude`**: Anthropic Claude Haiku. `ANTHROPIC_API_KEY` 필요(외부망 전용).
+- **`clovax`**: Naver HyperCLOVA X(CLOVA Studio). OpenAI 호환 엔드포인트 +
+  `CLOVASTUDIO_API_KEY`(`nv-` Bearer) 필요(외부망 전용). `local` 과 같은 OpenAI
+  클라이언트 경로를 쓰되 llama.cpp 전용 extra_body 는 보내지 않는다.
 
 ### 프롬프트 (`prompts/`)
 
@@ -107,6 +110,9 @@ LLM_MODEL=openai/gpt-oss-20b       # 축약형 'gpt-oss-20b' 금지(garbage) —
 LLM_MAX_RETRIES=1                  # OpenAI 클라이언트 내부 재시도와 곱해지므로 주의
 CLAUDE_MODEL=claude-haiku-4-5
 ANTHROPIC_API_KEY=sk-ant-...       # provider=claude 일 때만
+CLOVASTUDIO_API_KEY=nv-...        # provider=clovax 일 때만 (CLOVA Studio)
+CLOVASTUDIO_BASE_URL=https://clovastudio.stream.ntruss.com/v1/openai
+CLOVASTUDIO_MODEL=HCX-005          # HCX-005 | HCX-007 | HCX-DASH-002 ...
 ```
 `.env` 변경 후에는 **FastAPI를 재시작**해야 반영된다.
 

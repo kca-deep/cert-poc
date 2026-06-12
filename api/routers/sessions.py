@@ -40,7 +40,7 @@ class Session(BaseModel):
     questionCount: int
     foundCount: int
     elapsedSeconds: float | None = None
-    provider: Literal["local", "claude"] = "local"
+    provider: Literal["local", "claude", "clovax"] = "local"
     model: str | None = None  # 분석 시점 실제 모델 id (gpt-oss/exaone 구분)
 
 
@@ -91,7 +91,7 @@ class CreateSessionRequest(BaseModel):
     questionCount: int = 0
     questions: list[Question] = []
     mergedMd: str = ""
-    provider: Literal["local", "claude"] | None = None
+    provider: Literal["local", "claude", "clovax"] | None = None
 
 
 class CreateSessionResponse(BaseModel):
@@ -100,7 +100,7 @@ class CreateSessionResponse(BaseModel):
 
 class RerunRequest(BaseModel):
     """기존 세션을 (가능하면 다른 공급자로) 다시 분석."""
-    provider: Literal["local", "claude"] | None = None
+    provider: Literal["local", "claude", "clovax"] | None = None
 
 
 class ReviewAction(BaseModel):
@@ -129,7 +129,7 @@ def _preflight_provider(provider: str) -> str | None:
       응답 없으면 503.
     - claude: 외부 핑 대신 ANTHROPIC_API_KEY 존재로 게이트, CLAUDE_MODEL 반환.
     """
-    from config import build_config, claude_configured
+    from config import build_config, claude_configured, clovax_configured
     if provider == "claude":
         if not claude_configured():
             raise HTTPException(
@@ -137,6 +137,13 @@ def _preflight_provider(provider: str) -> str | None:
                 detail="Claude API 키(ANTHROPIC_API_KEY)가 설정되지 않았습니다.",
             )
         return build_config(provider).get("claude_model")
+    if provider == "clovax":
+        if not clovax_configured():
+            raise HTTPException(
+                status_code=503,
+                detail="HyperCLOVA X API 키(CLOVASTUDIO_API_KEY)가 설정되지 않았습니다.",
+            )
+        return build_config(provider).get("clova_model")
     from core.pipeline import preflight_local
     cfg = build_config(provider)
     msg = preflight_local(cfg)  # 성공 시 cfg["model"] 에 채택 모델 주입

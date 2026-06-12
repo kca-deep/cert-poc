@@ -45,7 +45,24 @@ def claude_config() -> dict:
     }
 
 
-VALID_PROVIDERS = ("local", "claude")
+def clovax_config() -> dict:
+    """
+    Naver HyperCLOVA X(CLOVA Studio) 호출 파라미터를 .env 에서 읽어 반환합니다.
+    CLOVA Studio 는 OpenAI 호환 엔드포인트를 제공하므로 local 과 동일한 OpenAI
+    클라이언트 경로를 쓰되, base_url 과 'nv-' Bearer 키가 다르다.
+    """
+    return {
+        "api_key":     os.getenv("CLOVASTUDIO_API_KEY", "").strip(),
+        "base_url":    os.getenv("CLOVASTUDIO_BASE_URL",
+                                 "https://clovastudio.stream.ntruss.com/v1/openai").strip(),
+        "model":       os.getenv("CLOVASTUDIO_MODEL",       "HCX-005"),
+        "max_tokens":  int(os.getenv("CLOVASTUDIO_MAX_TOKENS",  "2048")),
+        "max_retries": int(os.getenv("CLOVASTUDIO_MAX_RETRIES", "1")),
+        "retry_delay": int(os.getenv("CLOVASTUDIO_RETRY_DELAY", "3")),
+    }
+
+
+VALID_PROVIDERS = ("local", "claude", "clovax")
 
 
 def local_base_urls() -> list[str]:
@@ -109,6 +126,11 @@ def claude_configured() -> bool:
     return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
 
 
+def clovax_configured() -> bool:
+    """CLOVASTUDIO_API_KEY 가 환경(.env 포함)에 존재하는지."""
+    return bool(os.getenv("CLOVASTUDIO_API_KEY", "").strip())
+
+
 def build_config(provider: str | None = None) -> dict:
     """
     파이프라인이 사용하는 단일 cfg 를 만든다. local 파라미터를 기반으로 하고
@@ -118,15 +140,23 @@ def build_config(provider: str | None = None) -> dict:
     provider = resolve_provider(provider)
     cfg = lm_config()
     c = claude_config()
+    cl = clovax_config()
     # 자동탐지 후보. 실제 채택 base_url/model 은 preflight_local() 이 프로브로 주입.
     cfg["base_url_candidates"] = local_base_urls()
     cfg["provider"]          = provider
     cfg["claude_model"]      = c["model"]
     cfg["claude_max_tokens"] = c["max_tokens"]
     cfg["claude_api_key"]    = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    cfg["clova_model"]       = cl["model"]
+    cfg["clova_max_tokens"]  = cl["max_tokens"]
+    cfg["clova_base_url"]    = cl["base_url"]
+    cfg["clova_api_key"]     = cl["api_key"]
     if provider == "claude":
         cfg["max_retries"] = c["max_retries"]
         cfg["retry_delay"] = c["retry_delay"]
+    elif provider == "clovax":
+        cfg["max_retries"] = cl["max_retries"]
+        cfg["retry_delay"] = cl["retry_delay"]
     return cfg
 
 
@@ -138,6 +168,9 @@ def print_lm_config(cfg: dict, overrides: dict | None = None) -> None:
     lines.append(f"  provider={provider} {'(CLI)' if 'provider' in overrides else '(.env)'}")
     if provider == "claude":
         keys = ("claude_model", "claude_max_tokens", "max_retries", "retry_delay")
+    elif provider == "clovax":
+        keys = ("clova_base_url", "clova_model", "clova_max_tokens",
+                "temperature", "max_retries", "retry_delay")
     else:
         keys = ("base_url", "model", "temperature", "max_tokens", "reasoning_effort",
                 "timeout", "max_retries", "retry_delay")

@@ -27,8 +27,8 @@ export type ReviewActionType = "confirmed" | "rejected" | "pending";
 
 export type FileType = "hwp" | "hwpx" | "pdf";
 
-/** LLM 공급자 — 내부망 로컬 모델(EXAONE 등) vs Claude Haiku. */
-export type LlmProvider = "local" | "claude";
+/** LLM 공급자 — 내부망 로컬 모델(EXAONE 등) vs Claude Haiku vs HyperCLOVA X. */
+export type LlmProvider = "local" | "claude" | "clovax";
 
 /** GET /config/llm 응답 — 토글 초기 상태/가용성 메타. */
 export interface ProviderMeta {
@@ -41,6 +41,7 @@ export interface ProviderMeta {
 export interface LlmConfig {
   default: LlmProvider;
   claudeConfigured: boolean;
+  clovaxConfigured: boolean;
   providers: ProviderMeta[];
 }
 
