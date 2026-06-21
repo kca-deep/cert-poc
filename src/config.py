@@ -65,30 +65,88 @@ def clovax_config() -> dict:
 VALID_PROVIDERS = ("local", "claude", "clovax")
 
 
+# 자동탐지 공통 후보(.env 미설정 시). 흔한 로컬 OpenAI 호환 포트를 순서대로 본다:
+# Ollama(11434) → llama.cpp(8080) → LM Studio(1234). 첫 healthy 가 채택된다.
+DEFAULT_LOCAL_CANDIDATES = [
+    "http://127.0.0.1:11434/v1",  # Ollama (OpenAI 호환 엔드포인트)
+    "http://127.0.0.1:8080/v1",   # llama.cpp
+    "http://127.0.0.1:1234/v1",   # LM Studio
+]
+
+
 def local_base_urls() -> list[str]:
     """
     로컬 LLM 후보 base_url 목록(자동탐지 순서). 첫 healthy 서버를 채택한다.
-    하드코딩 없이 .env 로만 구성한다:
 
-    - LOCAL_BASE_URLS(콤마구분)가 있으면 그 목록을 순서대로(= 우선순위) 사용한다.
-      예: gpt-oss(8080), exaone(8081) 두 엔드포인트를 모두 적어두면 분석 전
+    - LOCAL_BASE_URLS(콤마구분)가 있으면 그 목록만 순서대로(= 우선순위) 사용한다.
+      예: ollama(11434), gpt-oss(8080) 두 엔드포인트를 모두 적어두면 분석 전
           health 체크로 살아있는 쪽을 자동 채택한다.
-    - 없으면 단일 LOCAL_BASE_URL 만 후보로 쓴다(하위호환).
+    - LOCAL_BASE_URL(단일)만 있으면 그것을 최우선으로 두고, 공통 후보를 폴백으로
+      덧붙인다(명시 서버가 죽어도 Ollama 등을 자동탐지).
+    - 둘 다 없으면 공통 후보(11434/8080/1234)만 스캔한다.
     """
     multi = os.getenv("LOCAL_BASE_URLS", "").strip()
     if multi:
         urls = [u.strip() for u in multi.split(",") if u.strip()]
         return list(dict.fromkeys(urls))
-    return [os.getenv("LOCAL_BASE_URL", "http://127.0.0.1:8080/v1").strip()]
+    single = os.getenv("LOCAL_BASE_URL", "").strip()
+    if single:
+        return list(dict.fromkeys([single, *DEFAULT_LOCAL_CANDIDATES]))
+    return list(DEFAULT_LOCAL_CANDIDATES)
 
 
-def probe_backend(base_url: str, connect: float = 3.0) -> str | None:
+def _native_root(base_url: str) -> str:
+    """OpenAI 호환 base_url(...:11434/v1)에서 Ollama 네이티브 루트(...:11434)를 얻는다."""
+    root = base_url.rstrip("/")
+    return root[:-3] if root.endswith("/v1") else root
+
+
+def probe_ollama(base_url: str, connect: float = 3.0) -> dict | None:
     """
-    OpenAI 호환 서버 1개를 GET {base_url}/models 로 프로브한다.
-    응답이 오면(=살아있음) 로딩된 model id(파싱 실패 시 빈 문자열)를, 접속 불가면
-    None 을 반환한다. connect 타임아웃을 짧게 잡아 죽은 포트를 빠르게 넘긴다.
+    Ollama 네이티브 API 로 '실행 중인' 모델을 탐지한다.
+
+    GET /api/ps(메모리에 로딩된=실행중 모델) 를 우선 보고, 비어 있으면(idle 로 언로드)
+    GET /api/tags(설치된 모델) 의 첫 모델로 폴백한다. /api/ps 가 200 이 아니면
+    Ollama 가 아니므로 None 을 반환한다(=OpenAI 호환 프로브로 넘어감).
+
+    반환: {"model": id, "backend": "ollama", "loaded": bool} 또는 None.
     """
     import httpx
+
+    root = _native_root(base_url)
+    timeout = httpx.Timeout(5.0, connect=connect)
+    try:
+        ps = httpx.get(root + "/api/ps", timeout=timeout)
+    except httpx.RequestError:
+        return None
+    if ps.status_code != 200:
+        return None  # /api/ps 미존재 → Ollama 아님(llama.cpp/LM Studio)
+    try:
+        loaded = ps.json().get("models") or []
+        if loaded:
+            name = loaded[0].get("model") or loaded[0].get("name") or ""
+            return {"model": name, "backend": "ollama", "loaded": True}
+        tags = httpx.get(root + "/api/tags", timeout=timeout)
+        installed = (tags.json().get("models") or []) if tags.status_code == 200 else []
+        first = (installed[0].get("model") or installed[0].get("name") or "") if installed else ""
+        return {"model": first, "backend": "ollama", "loaded": False}
+    except Exception:  # noqa: BLE001 - 살아있으나 응답 파싱 실패
+        return {"model": "", "backend": "ollama", "loaded": False}
+
+
+def probe_backend(base_url: str, connect: float = 3.0) -> dict | None:
+    """
+    로컬 LLM 서버 1개를 프로브한다. Ollama(네이티브 /api/ps·/api/tags)를 먼저
+    시도하고, 아니면 OpenAI 호환 GET {base_url}/models 로 떨어진다.
+
+    반환(살아있음): {"model": id, "backend": "ollama"|"openai", "loaded": bool|None}.
+    접속 불가면 None. connect 타임아웃을 짧게 잡아 죽은 포트를 빠르게 넘긴다.
+    """
+    import httpx
+
+    ollama = probe_ollama(base_url, connect=connect)
+    if ollama is not None:
+        return ollama
 
     url = base_url.rstrip("/") + "/models"
     try:
@@ -97,21 +155,24 @@ def probe_backend(base_url: str, connect: float = 3.0) -> str | None:
         return None
     try:
         models = resp.json().get("data") or []
-        return (models[0].get("id") or "") if models else ""
+        model = (models[0].get("id") or "") if models else ""
     except Exception:  # noqa: BLE001 - 살아있으나 모델 목록 파싱 실패
-        return ""
+        model = ""
+    return {"model": model, "backend": "openai", "loaded": None}
 
 
-def probe_local_backends(candidates: list[str] | None = None) -> tuple[str, str] | None:
+def probe_local_backends(candidates: list[str] | None = None) -> dict | None:
     """
-    후보 base_url 들을 순서대로 프로브해 첫 healthy 서버의 (base_url, model_id)를
-    반환한다. 전부 접속 불가면 None. 첫 healthy 에서 멈추므로 8080 이 살아있으면
-    8081 은 프로브하지 않는다(공통 경로 지연 없음).
+    후보 base_url 들을 순서대로 프로브해 첫 healthy 서버 정보를 반환한다.
+    전부 접속 불가면 None. 첫 healthy 에서 멈추므로(공통 경로 지연 없음) 11434 가
+    살아있으면 8080 은 프로브하지 않는다.
+
+    반환: {"base_url", "model", "backend", "loaded"} 또는 None.
     """
     for url in (candidates or local_base_urls()):
-        model = probe_backend(url)
-        if model is not None:
-            return url, model
+        info = probe_backend(url)
+        if info is not None:
+            return {"base_url": url, **info}
     return None
 
 

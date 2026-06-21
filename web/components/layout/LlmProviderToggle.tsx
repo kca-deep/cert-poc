@@ -18,7 +18,7 @@ import { Cloud, HardDrive, Sparkles } from "lucide-react";
 
 import { getLlmConfig, queryKeys } from "@/lib/api";
 import { useProviderStore } from "@/lib/stores/provider";
-import type { LlmConfig, LlmProvider } from "@/lib/types";
+import type { LlmConfig, LlmProvider, ProviderMeta } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -65,8 +65,9 @@ export function LlmProviderToggle({
   className?: string;
   size?: "sm" | "md";
 }) {
-  const { provider, setProvider, claudeAvailable, clovaxAvailable, localAvailable } =
+  const { provider, setProvider, config, claudeAvailable, clovaxAvailable, localAvailable } =
     useLlmProvider();
+  const localMeta = config?.providers.find((p) => p.id === "local");
   const cols = OPTIONS.length;
   const activeIndex = Math.max(0, OPTIONS.findIndex((o) => o.id === provider));
 
@@ -142,6 +143,15 @@ export function LlmProviderToggle({
             </Tooltip>
           );
         }
+        // 로컬(Ollama 등) 가용 시 — 탐지된 모델명과 실행/설치 상태를 툴팁으로 안내.
+        if (id === "local" && localMeta?.model) {
+          return (
+            <Tooltip key={id}>
+              <TooltipTrigger asChild>{btn}</TooltipTrigger>
+              <TooltipContent>{localStatusText(localMeta)}</TooltipContent>
+            </Tooltip>
+          );
+        }
         return btn;
       })}
     </div>
@@ -158,6 +168,22 @@ export function providerLabel(p: LlmProvider | undefined): string {
  * 로컬 모델이 차수마다 바뀔 수 있어(EXAONE/gpt-oss) 알려진 패턴만 정규화하고,
  * 매칭이 없으면 모델 ID 를 그대로 노출한다.
  */
+/**
+ * 로컬 공급자 툴팁 문구 — 탐지된 모델명 + 백엔드/실행 상태.
+ * Ollama 는 loaded(=메모리 로딩)로 "실행중/설치됨(미로딩)"을 구분하고,
+ * llama.cpp/LM Studio(loaded=null)는 모델명만 노출한다.
+ */
+function localStatusText(meta: ProviderMeta): string {
+  // raw 모델 id 도 함께 보여줘 차수별 정확한 태그(exaone3.5:32b 등)를 확인 가능.
+  const name = meta.model === prettyModel(meta.model)
+    ? meta.model
+    : `${prettyModel(meta.model)} (${meta.model})`;
+  if (meta.backend === "ollama") {
+    return meta.loaded ? `${name} · 실행중` : `${name} · 설치됨(미로딩)`;
+  }
+  return name;
+}
+
 function prettyModel(model: string): string {
   const m = model.toLowerCase();
   if (m.includes("exaone")) return "EXAONE";

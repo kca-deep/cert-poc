@@ -20,6 +20,10 @@ class ProviderMeta(BaseModel):
     label: str
     model: str
     available: bool
+    # local(Ollama) 전용: 모델이 메모리에 로딩(=실행중)됐는지. None=무관(claude/clovax/llama.cpp).
+    loaded: bool | None = None
+    # 탐지된 백엔드 종류: "ollama" | "openai" | None.
+    backend: str | None = None
 
 
 class LlmConfigResponse(BaseModel):
@@ -44,14 +48,17 @@ async def get_llm_config() -> LlmConfigResponse:
     # 살아있으면 실제 로딩 모델명(gpt-oss/exaone)을 노출(차수마다 모델이 바뀜).
     probed = probe_local_backends()
     local_available = probed is not None
-    local_model = probed[1] if (probed and probed[1]) else local["model"]
+    local_model = probed["model"] if (probed and probed["model"]) else local["model"]
+    local_loaded = probed.get("loaded") if probed else None
+    local_backend = probed.get("backend") if probed else None
     return LlmConfigResponse(
         default=resolve_provider(None),
         claudeConfigured=claude_ok,
         clovaxConfigured=clovax_ok,
         providers=[
             ProviderMeta(id="local", label="로컬 LLM", model=local_model,
-                         available=local_available),
+                         available=local_available, loaded=local_loaded,
+                         backend=local_backend),
             ProviderMeta(id="claude", label="Claude Haiku", model=claude["model"],
                          available=claude_ok),
             ProviderMeta(id="clovax", label="HyperCLOVA X", model=clovax["model"],

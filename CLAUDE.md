@@ -55,7 +55,13 @@ import 하는 순서를 깨지 말 것.
 `build_config(provider)`가 단일 cfg를 만들고 호출부가 `cfg['provider']`로 분기한다.
 공급자는 **CLI `--provider` > `.env` `LLM_PROVIDER` > 기본 `local`** 순으로 결정.
 
-- **`local`**: OpenAI 호환 서버(EXAONE / gpt-oss, llama.cpp·LM Studio `:8080`). 폐쇄망 기본.
+- **`local`**: OpenAI 호환 서버(EXAONE / gpt-oss, llama.cpp·LM Studio·**Ollama**). 폐쇄망 기본.
+  - **자동탐지**: `config.py::probe_local_backends()`가 후보 base_url 을 순서대로 프로브해
+    첫 healthy 서버의 실제 모델·백엔드를 채택한다. 후보는 `LOCAL_BASE_URLS`(콤마) >
+    `LOCAL_BASE_URL`(+공통 폴백) > 공통 후보(`11434` Ollama, `8080` llama.cpp, `1234` LM Studio).
+  - **Ollama 인식**: `probe_ollama()`가 네이티브 `/api/ps`(메모리 로딩=실행중)를 우선,
+    비면 `/api/tags`(설치됨)로 폴백해 모델을 잡는다(`backend="ollama"`, `loaded` 노출).
+    Ollama 일 때는 llama.cpp 전용 extra_body(`cache_prompt`/`slot_id`)를 보내지 않는다.
 - **`claude`**: Anthropic Claude Haiku. `ANTHROPIC_API_KEY` 필요(외부망 전용).
 - **`clovax`**: Naver HyperCLOVA X(CLOVA Studio). OpenAI 호환 엔드포인트 +
   `CLOVASTUDIO_API_KEY`(`nv-` Bearer) 필요(외부망 전용). `local` 과 같은 OpenAI

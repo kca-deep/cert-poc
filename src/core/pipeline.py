@@ -123,12 +123,18 @@ def call_lm_studio(messages: list[dict], cfg: dict, slot_id: int = -1) -> dict:
     timeout = httpx.Timeout(cfg["timeout"], connect=cfg.get("connect_timeout", 5))
     client = OpenAI(base_url=cfg["base_url"], api_key="lm-studio",
                     timeout=timeout, max_retries=0)
-    extra: dict = {
-        "reasoning_effort": cfg["reasoning_effort"],
-        "cache_prompt": cfg.get("cache_prompt", False),
-    }
-    if slot_id >= 0:
-        extra["slot_id"] = slot_id
+    extra: dict = {}
+    # cache_prompt/slot_id 는 llama.cpp 전용 확장이다. Ollama 는 이를 모르고
+    # (clova 처럼) 보내면 안 되므로 backend != "ollama" 일 때만 전송한다.
+    if cfg.get("backend") != "ollama":
+        extra["cache_prompt"] = cfg.get("cache_prompt", False)
+        if slot_id >= 0:
+            extra["slot_id"] = slot_id
+    # reasoning_effort 는 gpt-oss 계열만 지원한다. Ollama 등 다른 서버는 이 값을
+    # "thinking 활성화"로 해석해, exaone 처럼 thinking 미지원 모델에 보내면
+    # 400("does not support thinking")으로 거부한다 → gpt-oss 일 때만 전송한다.
+    if "gpt-oss" in (cfg.get("model") or "").lower():
+        extra["reasoning_effort"] = cfg["reasoning_effort"]
     resp = client.chat.completions.create(
         model=cfg["model"], messages=messages,
         temperature=cfg["temperature"], max_tokens=cfg["max_tokens"],
@@ -338,10 +344,10 @@ def preflight_local(cfg: dict) -> str | None:
             f"로컬 LLM 서버에 접속할 수 없습니다 ({', '.join(candidates)}). "
             f"gpt-oss(8080)/exaone(8081) 서버 실행 여부를 확인하세요."
         )
-    base_url, model = resolved
-    cfg["base_url"] = base_url
-    if model:  # 살아있는 서버가 보고한 실제 모델 id 채택(.env 값보다 우선)
-        cfg["model"] = model
+    cfg["base_url"] = resolved["base_url"]
+    cfg["backend"] = resolved.get("backend", "openai")
+    if resolved.get("model"):  # 살아있는 서버가 보고한 실제 모델 id 채택(.env 값보다 우선)
+        cfg["model"] = resolved["model"]
     return None
 
 

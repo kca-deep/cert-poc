@@ -106,9 +106,11 @@ def call_lm_studio(messages: list[dict], slot_id: int = -1) -> dict:
     client = OpenAI(base_url=BASE_URL, api_key="lm-studio",
                     timeout=CFG["timeout"], max_retries=0)
     extra: dict = {
-        "reasoning_effort": CFG["reasoning_effort"],
         "cache_prompt": CFG.get("cache_prompt", False),
     }
+    # reasoning_effort 는 gpt-oss 계열만 지원 (Ollama 등은 thinking 요청으로 해석해 거부).
+    if "gpt-oss" in (MODEL or "").lower():
+        extra["reasoning_effort"] = CFG["reasoning_effort"]
     if slot_id >= 0:
         extra["slot_id"] = slot_id
     resp = client.chat.completions.create(

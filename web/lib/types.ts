@@ -36,6 +36,10 @@ export interface ProviderMeta {
   label: string;
   model: string;
   available: boolean;
+  // local(Ollama) 전용: 모델이 메모리에 로딩(=실행중)됐는지. null=무관/구버전 응답.
+  loaded?: boolean | null;
+  // 탐지된 백엔드 종류: "ollama" | "openai" | null.
+  backend?: string | null;
 }
 
 export interface LlmConfig {

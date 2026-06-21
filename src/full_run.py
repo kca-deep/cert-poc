@@ -103,11 +103,13 @@ def call_lm_studio(messages: list[dict], slot_id: int = -1) -> dict:
     client = OpenAI(base_url=BASE_URL, api_key="lm-studio",
                     timeout=CFG["timeout"], max_retries=0)
     extra: dict = {
-        "reasoning_effort": CFG["reasoning_effort"],
         # cache_prompt:false = 이전 슬롯 KV 캐시를 재사용하지 않고 매 요청을 처음부터 인코딩.
         # 슬롯 간 prefix 공유로 인한 KV 상태 오염을 원천 차단 (성능 대신 완전 격리).
         "cache_prompt": CFG.get("cache_prompt", False),
     }
+    # reasoning_effort 는 gpt-oss 계열만 지원 (Ollama 등은 thinking 요청으로 해석해 거부).
+    if "gpt-oss" in (MODEL or "").lower():
+        extra["reasoning_effort"] = CFG["reasoning_effort"]
     if slot_id >= 0:
         extra["slot_id"] = slot_id  # 명시적 슬롯 고정 (라운드로빈 사용 시)
     resp = client.chat.completions.create(
