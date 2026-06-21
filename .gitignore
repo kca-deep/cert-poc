@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# GitHub 토큰(로컬 git 인증용) — 절대 커밋 금지
+.github-token
+*.token
 
 # Python
 __pycache__/
