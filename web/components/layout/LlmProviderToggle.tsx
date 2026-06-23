@@ -198,7 +198,8 @@ function localStatusText(meta: ProviderMeta): string {
 
 function prettyModel(model: string): string {
   const m = model.toLowerCase();
-  if (m.includes("exaone")) return "EXAONE";
+  // exaone 은 버전/크기(4.0-32B 등)가 중요하므로 뭉개지 않고 전체 id 를 그대로
+  // 노출한다 (gemma4 와 동일 취급 — 아래 return model 로 폴백).
   if (m.includes("haiku")) return "Claude Haiku";
   if (m.includes("sonnet")) return "Claude Sonnet";
   if (m.includes("opus")) return "Claude Opus";

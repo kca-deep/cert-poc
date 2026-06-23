@@ -148,7 +148,9 @@ def probe_backend(base_url: str, connect: float = 3.0) -> dict | None:
     로컬 LLM 서버 1개를 프로브한다. Ollama(네이티브 /api/ps·/api/tags)를 먼저
     시도하고, 아니면 OpenAI 호환 GET {base_url}/models 로 떨어진다.
 
-    반환(살아있음): {"model": id, "backend": "ollama"|"openai", "loaded": bool|None}.
+    반환(살아있음): {"model": id, "backend": "ollama"|"openai", "loaded": bool|None,
+                    "total_slots": int|None}. total_slots 는 llama.cpp 서버의 --parallel
+                    슬롯 수(/props)로, 클라이언트 동시성 자동 일치에 쓴다.
     접속 불가면 None. connect 타임아웃을 짧게 잡아 죽은 포트를 빠르게 넘긴다.
     """
     import httpx
@@ -167,7 +169,19 @@ def probe_backend(base_url: str, connect: float = 3.0) -> dict | None:
         model = (models[0].get("id") or "") if models else ""
     except Exception:  # noqa: BLE001 - 살아있으나 모델 목록 파싱 실패
         model = ""
-    return {"model": model, "backend": "openai", "loaded": None}
+    # llama.cpp /props 의 total_slots(=서버 --parallel) 를 읽어 클라이언트 동시성을
+    # 자동 일치시킨다(예: exaone parallel=2 ↔ 클라이언트 워커 2). 실패해도 무시.
+    # ★ /props 는 서버 루트 엔드포인트(.../props)지 OpenAI 호환 /v1 아래가 아니다.
+    slots = None
+    try:
+        props = httpx.get(_native_root(base_url) + "/props",
+                          timeout=httpx.Timeout(5.0, connect=connect))
+        if props.status_code == 200:
+            ts = props.json().get("total_slots")
+            slots = int(ts) if isinstance(ts, (int, float)) and ts else None
+    except Exception:  # noqa: BLE001 - /props 없거나 파싱 실패 → 미사용
+        slots = None
+    return {"model": model, "backend": "openai", "loaded": None, "total_slots": slots}
 
 
 def probe_local_backends(candidates: list[str] | None = None) -> dict | None:

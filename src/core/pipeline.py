@@ -287,6 +287,13 @@ def preflight_local(cfg: dict) -> str | None:
     cfg["backend"] = resolved.get("backend", "openai")
     if resolved.get("model"):  # 살아있는 서버가 보고한 실제 모델 id 채택(.env 값보다 우선)
         cfg["model"] = resolved["model"]
+    # 서버 슬롯(--parallel) 자동 일치: 클라이언트 동시성을 서버 슬롯 이하로 맞춘다.
+    # (예: exaone 서버 parallel=2 → 워커 2. 모델 전환 시 .env 손 안 대고 자동 조정.)
+    # 설정값(LLM_PARALLEL_WORKERS)을 상한으로 두어 사용자가 더 낮게 잡은 건 존중한다.
+    slots = resolved.get("total_slots")
+    if isinstance(slots, int) and slots > 0:
+        cfg["parallel_workers"] = min(cfg.get("parallel_workers", slots), slots)
+        cfg["n_slots"] = slots
     return None
 
 
