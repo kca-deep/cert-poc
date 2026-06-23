@@ -31,89 +31,40 @@ _RUNS: dict[str, dict[str, Any]] = {}
 _LOCK = threading.Lock()
 
 
-# ── type_code → layer 도출 (pipeline 정의 재사용, 단일 소스) ──────
-
-def _layer_of_map() -> dict[str, int]:
-    """core.pipeline 의 레이어 정의로 type_code → layer 매핑을 만든다."""
-    from core.pipeline import LAYER0_TYPES, LAYER1_GROUPS, LAYER2_TYPES
-
-    m: dict[str, int] = {}
-    for t in LAYER0_TYPES:
-        m[t] = 0
-    for grp in LAYER1_GROUPS:
-        for t in grp["types"]:
-            m[t] = 1
-    for t in LAYER2_TYPES:
-        m[t] = 2
-    return m
-
-
-def _results_from_filtered(filtered: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    merged_filtered.json({q_str: {type_code: result}}) → AnomalyResult dict 리스트.
-    found=true 인 것(또는 후처리로 필터된 것)만 적재한다.
-    """
-    layer_of = _layer_of_map()
-    out: list[dict[str, Any]] = []
-    for q_str, q_results in filtered.items():
-        try:
-            q_num = int(q_str)
-        except (TypeError, ValueError):
-            continue
-        for type_code, r in q_results.items():
-            if not isinstance(r, dict):
-                continue
-            found = bool(r.get("found"))
-            filter_reason = r.get("_filtered") or r.get("_note")
-            is_filtered = filter_reason is not None
-            if not found and not is_filtered:
-                continue  # 미탐은 적재 생략 (프론트는 found/filtered 만 사용)
-            out.append({
-                "qNumber": q_num,
-                "typeCode": type_code,
-                "layer": layer_of.get(type_code, 2),
-                "found": found,
-                "confidence": r.get("confidence"),
-                "issues": r.get("issues", []) or [],
-                "filtered": is_filtered,
-                "filterReason": filter_reason if isinstance(filter_reason, str) else None,
-            })
-    return out
-
-
-def _persist_on_done(session_id: str, result_dir: Path,
-                     total_found: int, elapsed: float) -> None:
-    """done 이벤트 처리: merged_filtered → anomaly_results 적재 + 세션 done."""
-    import json
-
-    filtered_path = result_dir / "merged_filtered.json"
-    if filtered_path.exists():
-        filtered = json.loads(filtered_path.read_text(encoding="utf-8"))
-        results = _results_from_filtered(filtered)
-        db.replace_results(session_id, results)
-    db.update_session_status(session_id, "done", found_count=total_found,
-                             elapsed_seconds=elapsed)
-
-
 # ── 백그라운드 러너 ──────────────────────────────────────────────
 
 def _run(session_id: str, md_text: str, result_dir: Path,
          q_filter: int | None, provider: str | None, reset: bool) -> None:
-    """별도 스레드에서 run_pipeline 을 소비하며 버퍼/DB 를 갱신한다."""
+    """
+    별도 스레드에서 run_pipeline 을 소비하며 버퍼/DB 를 갱신한다.
+
+    q_done 이벤트마다 findings 를 누적하고(문항번호 부착), done 에서 일괄 영속한다.
+    """
     from core.pipeline import run_pipeline
 
     run = _RUNS[session_id]
+    accumulated: list[dict[str, Any]] = []
     try:
         for ev in run_pipeline(md_text, result_dir, q_filter=q_filter,
                                reset=reset, provider=provider):
             with _LOCK:
                 run["events"].append(ev)
             kind = ev.get("event")
-            if kind == "done":
-                _persist_on_done(
-                    session_id, result_dir,
-                    int(ev.get("totalFound", 0)),
-                    float(ev.get("elapsed", 0.0)),
+            if kind == "q_done":
+                # 문항 완료마다 findings 를 증분 영속(실시간) + 진행 카운트 갱신.
+                q = int(ev.get("q"))
+                fs = [{**f, "qNumber": q} for f in (ev.get("findings", []) or [])]
+                accumulated.extend(fs)
+                db.append_findings(session_id, fs)
+                db.update_session_status(session_id, "running",
+                                         found_count=len(accumulated))
+            elif kind == "done":
+                # 최종 정합 보장(증분 중 누락 대비) + 상태 done 전이.
+                db.replace_findings(session_id, accumulated)
+                db.update_session_status(
+                    session_id, "done",
+                    found_count=int(ev.get("totalFound", len(accumulated))),
+                    elapsed_seconds=float(ev.get("elapsed", 0.0)),
                 )
             elif kind == "error":
                 db.update_session_status(session_id, "error")

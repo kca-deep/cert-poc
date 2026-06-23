@@ -1,111 +1,55 @@
-# cert-poc — 유형별 윤문 프롬프트
+# cert-poc — holistic 검출 프롬프트
 
-정보보호능력검정(TOLIS) 시험 문제지의 **유형별 검수/윤문 LLM 프롬프트** 모음입니다.
-1차 진행 범위는 **정보보호 개요 카탈로그 A01~A20** 입니다.
+자격검정(TOLIS) 문제지 검수용 **holistic 단일호출 검출 프롬프트**. 문항 1개를 한 번의
+LLM 호출로 전 유형 검토하며, 출력은 llama.cpp native grammar 로 강제된다.
+
+> 이력: 과거 `per-type/`(유형별 1콜) · `grouped/`·`hybrid/`(그룹 1콜) 체계를 cert-harness
+> 외과적 v2 로 **전면 대체**했다. 경위는 `docs/harness_migration_plan.md`.
 
 ## 호출 단위
-- **1 문항 × 1 유형 = 1 콜**
-- 정보보호 개요 20문항 × 20유형 = **400 콜** (LM Studio `openai/gpt-oss-20b` 로컬)
-- 한 콜은 단 하나의 유형만 점검하며, 다른 유형 결함은 별도 콜에서 검출합니다.
-- 외부 API 사용 금지(시험 문제는 외부 유출 금지 자료). 모든 호출은 로컬 LM Studio.
+- **1 문항 = 1 콜** (전 유형 holistic). 과거 "문항×유형" 다중콜은 폐기.
+- 외부 API 사용은 선택(claude/clovax). 폐쇄망 기본은 로컬 llama.cpp.
 
 ## 디렉터리 구조
 ```
 prompts/
 ├── README.md              ← 이 파일
-├── _shared/
-│   ├── system_preamble.md ← 모든 유형 공통 시스템 프리앰블 (역할/언어/금지/출력형식)
-│   ├── output_schema.json ← 응답 JSON Schema (러너의 검증/머지 기반)
-│   └── _template.md       ← 신규 유형 추가 시 복제할 골격
-└── per-type/
-    ├── A01_choice_duplicate.md
-    ├── A02_typo.md
-    ├── A03_choice_count_short.md
-    ├── A04_spelling.md
-    ├── A05_typo_english.md
-    ├── A06_spacing.md
-    ├── A07_special_symbol_missing.md
-    ├── A08_awkward_sentence.md
-    ├── A09_wrong_law_name.md
-    ├── A10_typo_or_choice_missing.md
-    ├── A11_graffiti_type1.md
-    ├── A12_graffiti_type2.md
-    ├── A13_question_number_duplicate.md
-    ├── A14_answer_leak.md
-    ├── A15_choice_text_missing.md
-    ├── A16_char_dropout.md
-    ├── A17_passage_marker_dropout.md
-    ├── A18_passage_whole_missing.md
-    ├── A19_special_symbol_missing.md
-    └── A20_wrong_law_article.md
+├── holistic/
+│   ├── review.md          ← 검출 코어: INSTRUCTION + 분류 결정규칙 + {{QUESTION_BLOCK}}
+│   └── system.md          ← holistic 검수자 시스템 프리앰블
+└── _shared/
+    ├── output_schema.json ← 11-enum findings 스키마 (grammar 강제용)
+    └── _template.md       ← (참고) 신규 프롬프트 골격
 ```
 
-## 파일명 규칙
-- `A{NN}_{english_slug}.md` — 코드 + 영문 슬러그(snake_case)
-- 한글 파일명은 일부 도구·CI에서 깨질 위험이 있어 금지
-
-## 프롬프트 파일 구조
-각 유형 파일은 다음 섹션을 포함합니다 (`_shared/_template.md` 참조).
-
-```
----
-code: A02
-name: 오자
-description: 한글 음절 단위 오자 검출
-output_field: typo
-severity_default: medium
-related_types: [A04, A05, A16]
----
-
-# 역할
-# 정의
-# 인접 유형과의 경계
-# 점검 절차
-# 출력
-# Few-shot (1개)
-# 입력 문항
-{{QUESTION_BLOCK}}
-```
-
-- `{{QUESTION_BLOCK}}`: 러너가 `## N.` 단위 문항 텍스트를 그대로 치환.
-- YAML frontmatter: 러너가 메타만 파싱해 호출 라우팅·결과 라벨링에 사용.
-
-## 출력 JSON 스키마
-응답은 **JSON 객체 1개** 만 (코드펜스·설명·인삿말 금지). `_shared/output_schema.json` 참조.
+## 출력 스키마 (`_shared/output_schema.json`)
+응답은 **JSON 객체 1개**. `config.holistic_schema()`가 메타키를 제거하고
+`response_format=json_schema`로 전달 → 서버가 GBNF 로 변환·강제한다.
 
 ```json
 {
-  "question_number": 1,
-  "type_code": "A02",
-  "type_name": "오자",
-  "found": true,
-  "issues": [
+  "has_error": true,
+  "findings": [
     {
-      "location": "choice_1",
-      "original": "노출되지 앙게",
-      "suspected": "'앙게'는 '않게'의 음절 오자",
-      "suggested": "노출되지 않게"
+      "location": "보기 ②",
+      "quote": "외뷰",
+      "error_type": "맞춤법",
+      "reason": "'외뷰'는 '외부'의 오자",
+      "suggestion": "외부",
+      "confidence": "높음"
     }
-  ],
-  "confidence": "high"
+  ]
 }
 ```
 
-- `location` enum: `stem | passage | choice_1 | choice_2 | choice_3 | choice_4`
-- `issues[].extra` (선택): 유형별 보조 정보 (예: A01 의 `duplicate_with`, A03 의 `missing_choices`)
-- 결함 없음: `found:false`, `issues:[]`, `confidence` 도 `low` 가능
+- `error_type` 11-enum: `맞춤법 · 띄어쓰기 · 문법비문 · 선택지누락 · 선택지중복 ·
+  용어오류 · 사실오류 · 약어오기 · 정답유출 · 편집표시 · 기타`
+- `confidence`: `높음 | 보통 | 낮음`
+- `quote`: 문항 원문 그대로 복사(지어내기 금지). 인용할 원문이 없으면 인접 원문 사용.
+- 오류 없음: `has_error:false`, `findings:[]`
 
-## 신규 유형 추가 절차
-1. `_shared/_template.md` 복제 → `per-type/A{NN}_<slug>.md`
-2. frontmatter 채우기 (code·name·description·related_types)
-3. 정의·경계·점검 절차·few-shot 작성
-4. dry-run 1~2 문항 호출로 JSON 안정성 확인
-5. 필요 시 인접 유형 프롬프트의 `related_types` 와 "vs Axx" 절을 상호 갱신
-
-## 진행 상태 (1차)
-- [x] `_shared/system_preamble.md`
-- [x] `_shared/output_schema.json`
-- [x] `_shared/_template.md`
-- [ ] 시범 5개: A01·A02·A04·A06·A14
-- [ ] 잔여 15개
-- [ ] 러너·머저·평가기 (`src/`)
+## 프롬프트 수정 규칙
+- `{{QUESTION_BLOCK}}`: 파이프라인이 `## N.` 단위 문항 텍스트를 그대로 치환.
+- **예시는 합성 예시여야 한다 — 특정 차수 실제 문항을 넣지 말 것.**
+- `review.md` 의 분류 결정규칙과 `output_schema.json` 의 enum 은 **함께 맞춘다**.
+  enum 을 바꾸면 `web/lib/types.ts`(ErrorType)·`web/lib/constants.ts`(ERROR_TYPES)도 동시 갱신.

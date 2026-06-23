@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert, X } from "lucide-react";
 
 import { completeAnalysis, getSession, queryKeys } from "@/lib/api";
-import type { AnomalyResult, Session } from "@/lib/types";
+import type { Finding, Question, Session } from "@/lib/types";
+import { agentMeta } from "@/lib/constants";
 import { useSessionProgress } from "@/lib/sse";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SessionHeader } from "./SessionHeader";
 import { QuestionList } from "./QuestionList";
 import { QuestionDetail } from "./QuestionDetail";
+import { AnomalyCard } from "./AnomalyCard";
 import { MatrixView } from "./MatrixView";
 import { RerunPanel } from "./RerunControls";
 import { PipelineProgress } from "@/components/progress/PipelineProgress";
@@ -66,12 +68,15 @@ export function SessionView({ id }: { id: string }) {
     };
   }, []);
   // 탭 전환 시 새 스크롤러는 최상단 → 축약 해제.
-  useEffect(() => setCondensed(false), [tab]);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setCondensed(false));
+    return () => cancelAnimationFrame(raf);
+  }, [tab]);
 
   const firstFoundQ = useMemo(() => {
     if (!data) return null;
-    const found = data.results.find((r) => r.found);
-    return found?.qNumber ?? data.questions[0]?.qNumber ?? null;
+    const first = data.findings[0];
+    return first?.qNumber ?? data.questions[0]?.qNumber ?? null;
   }, [data]);
 
   const activeQ = selectedQ ?? firstFoundQ;
@@ -92,10 +97,10 @@ export function SessionView({ id }: { id: string }) {
   }
   if (!data) return <NotFoundState />;
 
-  const { session, questions, results } = data;
+  const { session, questions, findings } = data;
 
   if (session.status === "running" || session.status === "parsing") {
-    return <RunningView session={session} />;
+    return <RunningView session={session} questions={questions} />;
   }
 
   // 분석이 오류로 종료됨 (LLM 서버 미가용 등) — 공급자 전환 후 재실행.
@@ -112,8 +117,8 @@ export function SessionView({ id }: { id: string }) {
 
   const selectedQuestion =
     questions.find((q) => q.qNumber === activeQ) ?? null;
-  const selectedResults: AnomalyResult[] = results.filter(
-    (r) => r.qNumber === activeQ
+  const selectedFindings: Finding[] = findings.filter(
+    (f) => f.qNumber === activeQ
   );
 
   const selectAndShow = (q: number) => {
@@ -142,14 +147,14 @@ export function SessionView({ id }: { id: string }) {
           <div className="grid h-full grid-cols-[4fr_6fr] divide-x divide-border">
             <QuestionList
               questions={questions}
-              results={results}
+              findings={findings}
               selectedQ={activeQ}
               onSelect={setSelectedQ}
             />
             <QuestionDetail
               sessionId={session.id}
               question={selectedQuestion}
-              results={selectedResults}
+              findings={selectedFindings}
             />
           </div>
         </TabsContent>
@@ -157,7 +162,7 @@ export function SessionView({ id }: { id: string }) {
         <TabsContent value="matrix" className="min-h-0 flex-1 overflow-auto p-5">
           <MatrixView
             questions={questions}
-            results={results}
+            findings={findings}
             onSelectQ={selectAndShow}
           />
         </TabsContent>
@@ -191,11 +196,19 @@ function NotFoundState({ message }: { message?: string }) {
 }
 
 /**
- * Drives a running session to completion via the mock progress hook, then
- * marks it done and refetches so the dashboard view takes over.
+ * 분석 진행 중 뷰. SSE(useSessionProgress)로 문항 진행 + 실시간 findings 를 받아
+ * 진행바/문항 도트를 그리고, 문항을 클릭하면 그 문항에서 탐지된 내용을 즉시 보여준다.
+ * (findings 는 q_done 마다 누적되며 백엔드도 증분 영속하므로 새로고침에도 유지된다.)
  */
-function RunningView({ session }: { session: Session }) {
+function RunningView({
+  session,
+  questions,
+}: {
+  session: Session;
+  questions: Question[];
+}) {
   const queryClient = useQueryClient();
+  const [selectedQ, setSelectedQ] = useState<number | null>(null);
 
   const state = useSessionProgress({
     sessionId: session.id,
@@ -209,15 +222,163 @@ function RunningView({ session }: { session: Session }) {
     },
   });
 
+  const selectedQuestion =
+    selectedQ != null
+      ? questions.find((q) => q.qNumber === selectedQ) ?? null
+      : null;
+  const selectedFindings: Finding[] =
+    selectedQ != null ? state.findingsByQ[selectedQ] ?? [] : [];
+  const selectedStatus =
+    selectedQ != null ? state.questionStatus[selectedQ] ?? "pending" : null;
+  const selectedLane =
+    selectedQ != null ? state.workerByQ[selectedQ] : undefined;
+
+  // 실시간 탐지 피드: findings 가 있는 문항(문항순) + 검토 실패 문항.
+  const feedQs = Object.keys(state.findingsByQ)
+    .map(Number)
+    .filter((q) => (state.findingsByQ[q]?.length ?? 0) > 0)
+    .sort((a, b) => a - b);
+  const erroredQs = Object.keys(state.questionStatus)
+    .map(Number)
+    .filter((q) => state.questionStatus[q] === "error")
+    .sort((a, b) => a - b);
+
   return (
     <div className="flex h-full flex-col">
       <SessionHeader session={session} />
-      {/* 진행 카드를 가용 영역의 가로·세로 중앙에 배치 (내용이 길면 스크롤). */}
       <div className="flex-1 overflow-y-auto p-5">
-        <div className="flex min-h-full items-center justify-center">
-          <div className="w-full max-w-2xl">
-            <PipelineProgress state={state} />
-          </div>
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+          <PipelineProgress
+            state={state}
+            selectedQ={selectedQ}
+            onSelectQ={setSelectedQ}
+          />
+
+          {/* 선택한 문항의 실시간 탐지 내용 */}
+          {selectedQ != null && (
+            <div className="flex flex-col rounded-md border border-border bg-card">
+              <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  문항 {String(selectedQ).padStart(2, "0")}
+                </span>
+                {selectedLane != null && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                    style={{
+                      color: agentMeta(selectedLane).color,
+                      backgroundColor: `color-mix(in oklab, ${agentMeta(selectedLane).color} 14%, transparent)`,
+                    }}
+                  >
+                    <span
+                      className="size-1.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: agentMeta(selectedLane).color }}
+                    />
+                    {agentMeta(selectedLane).label} 처리 중
+                  </span>
+                )}
+                <span className="h-px flex-1 bg-border" />
+                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                  탐지 {selectedFindings.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedQ(null)}
+                  className="text-muted-foreground transition-colors hover:text-foreground"
+                  title="닫기"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-3 p-3">
+                {selectedQuestion && (
+                  <pre className="whitespace-pre-wrap rounded-md border border-border bg-secondary/30 p-3 font-sans text-[13px] leading-relaxed text-foreground">
+                    {selectedQuestion.mdText}
+                  </pre>
+                )}
+                {selectedFindings.length > 0 ? (
+                  selectedFindings.map((f) => (
+                    <AnomalyCard key={f.id} sessionId={session.id} finding={f} />
+                  ))
+                ) : (
+                  <div className="py-4 text-center text-[13px] text-muted-foreground">
+                    {selectedStatus === "error"
+                      ? "이 문항은 검토에 실패했습니다(타임아웃/파싱오류). 분석 후 재실행을 권장합니다."
+                      : selectedStatus === "done"
+                        ? "이 문항에서 탐지된 오류가 없습니다."
+                        : "아직 이 문항을 검토 중입니다…"}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 실시간 탐지 피드 — 문항 클릭 없이도 도착하는 대로 검수(확인/반려) */}
+          {selectedQ == null && (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[15px] font-medium text-foreground">
+                  실시간 탐지
+                </span>
+                <span
+                  className="font-mono text-[14px] font-medium tabular-nums"
+                  style={{ color: "var(--status-found)" }}
+                >
+                  {state.foundCount}건
+                </span>
+                <span className="text-[12px] text-muted-foreground">
+                  · 분석 중에도 바로 확인/반려할 수 있습니다
+                </span>
+              </div>
+
+              {erroredQs.length > 0 && (
+                <div
+                  className="rounded-md border px-3 py-2 text-[13px]"
+                  style={{
+                    borderColor: "#f59e0b66",
+                    backgroundColor: "#f59e0b14",
+                    color: "#f59e0b",
+                  }}
+                >
+                  ⚠️ 검토 실패 {erroredQs.length}문항 (
+                  {erroredQs.map((q) => `Q${q}`).join(", ")}) — 분석 완료 후
+                  재실행을 권장합니다.
+                </div>
+              )}
+
+              {feedQs.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border py-10 text-center text-[13px] text-muted-foreground">
+                  아직 탐지된 오류가 없습니다. 검토가 진행되면 여기에 실시간으로
+                  쌓입니다.
+                </div>
+              ) : (
+                feedQs.map((q) => (
+                  <div key={q} className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedQ(q)}
+                      className="flex items-center gap-2 text-left transition-colors hover:text-foreground"
+                      title="이 문항만 보기(원문 포함)"
+                    >
+                      <span className="font-mono text-[13px] tabular-nums text-muted-foreground">
+                        문항 {String(q).padStart(2, "0")}
+                      </span>
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
+                        {state.findingsByQ[q].length}건
+                      </span>
+                    </button>
+                    {state.findingsByQ[q].map((f) => (
+                      <AnomalyCard
+                        key={f.id}
+                        sessionId={session.id}
+                        finding={f}
+                      />
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

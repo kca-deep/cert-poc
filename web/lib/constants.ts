@@ -1,72 +1,75 @@
 /**
- * Catalog + display metadata — webapp_frontend_plan.md §2.
- * Anomaly types A01~A21 with their layer (L0 code / L1 / L2) and group.
- * Layer/status colors reference the CSS tokens defined in app/globals.css.
+ * Catalog + display metadata (holistic findings).
+ *
+ * ★ 전면 대체: A01~A21 유형 카탈로그 + 레이어 메타를 폐기하고, holistic error_type
+ *   11-enum 의 표시 메타로 교체. 색은 globals.css 의 도메인 토큰을 재사용한다.
  */
 
 import type {
   Confidence,
-  IssueLocation,
-  Layer,
+  ErrorType,
   ReviewActionType,
   SessionStatus,
 } from "./types";
 
-export interface AnomalyTypeMeta {
-  code: string;
-  label: string; // 한글명
-  layer: Layer;
-  group: string | null; // G1~G5 or null
+export interface ErrorTypeMeta {
+  code: ErrorType;
+  label: string; // 표시 한글명 (= code)
+  category: string; // 묶음(칩 색 그룹)
+  color: string; // 칩 색 (globals.css 도메인 토큰 hex)
 }
 
-/** Insertion order = display order (A01 → A21). */
-export const ANOMALY_TYPES: Record<string, AnomalyTypeMeta> = {
-  A01: { code: "A01", label: "보기 중복", layer: 0, group: null },
-  A02: { code: "A02", label: "오자", layer: 2, group: null },
-  A03: { code: "A03", label: "보기개수 미달", layer: 0, group: null },
-  A04: { code: "A04", label: "맞춤법 오류", layer: 1, group: "G1" },
-  A05: { code: "A05", label: "영문 오타", layer: 1, group: "G1" },
-  A06: { code: "A06", label: "띄어쓰기 오류", layer: 1, group: "G1" },
-  A07: { code: "A07", label: "특수기호 누락", layer: 2, group: null },
-  A08: { code: "A08", label: "매끄럽지 못한 문장", layer: 2, group: null },
-  A09: { code: "A09", label: "법령명 오류", layer: 1, group: "G4" },
-  A10: { code: "A10", label: "오타·보기 누락", layer: 2, group: null },
-  A11: { code: "A11", label: "낙서형 1", layer: 1, group: "G5" },
-  A12: { code: "A12", label: "낙서형 2", layer: 2, group: null },
-  A13: { code: "A13", label: "문항번호 중복", layer: 0, group: null },
-  A14: { code: "A14", label: "정답 노출", layer: 1, group: "G5" },
-  A15: { code: "A15", label: "보기 없음", layer: 0, group: null },
-  A16: { code: "A16", label: "탈자", layer: 2, group: null },
-  A17: { code: "A17", label: "지문 원문자 탈자", layer: 0, group: null },
-  A18: { code: "A18", label: "문장 전체 생략", layer: 0, group: null },
-  A19: { code: "A19", label: "특수기호 누락(지문)", layer: 2, group: null },
-  A20: { code: "A20", label: "법조항 오류", layer: 1, group: "G4" },
-  A21: { code: "A21", label: "잘못된 단어", layer: 2, group: null },
+/**
+ * error_type 11-enum 표시 메타 (삽입 순서 = 표시 순서).
+ * category 로 묶어 색을 부여한다: 표기 / 문장 / 선택지 / 내용 / 치명 / 기타.
+ */
+export const ERROR_TYPES: Record<ErrorType, ErrorTypeMeta> = {
+  맞춤법: { code: "맞춤법", label: "맞춤법", category: "표기", color: "#5b8bff" },
+  띄어쓰기: { code: "띄어쓰기", label: "띄어쓰기", category: "표기", color: "#5b8bff" },
+  약어오기: { code: "약어오기", label: "약어오기", category: "표기", color: "#5b8bff" },
+  문법비문: { code: "문법비문", label: "문법비문", category: "문장", color: "#9a8cf0" },
+  선택지누락: { code: "선택지누락", label: "선택지누락", category: "선택지", color: "#ffdb13" },
+  선택지중복: { code: "선택지중복", label: "선택지중복", category: "선택지", color: "#ffdb13" },
+  용어오류: { code: "용어오류", label: "용어오류", category: "내용", color: "#3ecf8e" },
+  사실오류: { code: "사실오류", label: "사실오류", category: "내용", color: "#3ecf8e" },
+  정답유출: { code: "정답유출", label: "정답유출", category: "치명", color: "#f5503c" },
+  편집표시: { code: "편집표시", label: "편집표시", category: "치명", color: "#f5503c" },
+  기타: { code: "기타", label: "기타", category: "기타", color: "#8f8f8f" },
 };
 
-/** Stable A01→A21 order for matrix columns / iteration. */
-export const ANOMALY_TYPE_ORDER = Object.keys(ANOMALY_TYPES);
+/** 안정된 표시 순서 (매트릭스 컬럼 / 반복용). */
+export const ERROR_TYPE_ORDER = Object.keys(ERROR_TYPES) as ErrorType[];
 
-export function typeMeta(code: string): AnomalyTypeMeta {
+export function errorTypeMeta(code: string): ErrorTypeMeta {
   return (
-    ANOMALY_TYPES[code] ?? { code, label: code, layer: 2, group: null }
+    ERROR_TYPES[code as ErrorType] ?? {
+      code: "기타",
+      label: code || "기타",
+      category: "기타",
+      color: "#8f8f8f",
+    }
   );
 }
 
-/** Layer badge metadata — colors are CSS vars (see globals.css). */
-export const LAYER_META: Record<
-  Layer,
-  { label: string; short: string; varName: string }
-> = {
-  0: { label: "L0 · 코드", short: "L0", varName: "--layer-0" },
-  1: { label: "L1 · 추론", short: "L1", varName: "--layer-1" },
-  2: { label: "L2 · 검증", short: "L2", varName: "--layer-2" },
-};
+/**
+ * 병렬 처리 에이전트(논리 레인) 표시 메타. 동시에 도는 워커를 agentA/B/C 로 식별한다.
+ * 색은 상태색(found=emerald, error=tomato)과 겹치지 않게 blue/violet/amber 로.
+ */
+export const AGENT_META: { label: string; color: string }[] = [
+  { label: "agentA", color: "#5b8bff" },
+  { label: "agentB", color: "#9a8cf0" },
+  { label: "agentC", color: "#e0a83e" },
+];
 
-export const CONFIDENCE_LABEL: Record<Confidence, string> = {
-  low: "낮음",
-  medium: "보통",
-  high: "높음",
+export function agentMeta(lane: number): { label: string; color: string } {
+  return AGENT_META[lane] ?? { label: `agent${lane}`, color: "#8f8f8f" };
+}
+
+/** 신뢰도 표시 메타 (값 자체가 한글 라벨). */
+export const CONFIDENCE_META: Record<Confidence, { label: string; tone: string }> = {
+  높음: { label: "높음", tone: "--status-found" },
+  보통: { label: "보통", tone: "--layer-2" },
+  낮음: { label: "낮음", tone: "--muted-foreground" },
 };
 
 export const STATUS_META: Record<
@@ -87,13 +90,4 @@ export const REVIEW_META: Record<
   confirmed: { label: "확인", varName: "--status-found" },
   rejected: { label: "반려", varName: "--status-error" },
   pending: { label: "보류", varName: "--status-hold" },
-};
-
-export const LOCATION_LABEL: Record<IssueLocation, string> = {
-  stem: "발문",
-  passage: "지문",
-  choice_1: "보기 ①",
-  choice_2: "보기 ②",
-  choice_3: "보기 ③",
-  choice_4: "보기 ④",
 };

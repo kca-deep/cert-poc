@@ -1,72 +1,44 @@
 /**
  * PipelineGuide — 현재 프로덕션 윤문 분석 파이프라인 상세설명(정적 문서).
  *
- * 업로드 → 파싱 → 공급자 → 검사(L0/L1/L2) → 후처리 → 결과·검수의 전체 흐름을
- * 설명한다. 레이어별 검사 유형은 web/lib/constants.ts 카탈로그에서 파생하므로
- * (하드코딩 금지) 항상 프로덕션과 일치한다.
+ * 업로드 → 파싱 → 공급자 결정 → holistic 검출(문항당 LLM 1콜) → 결과·검수의 전체
+ * 흐름을 설명한다. holistic 전환으로 레이어/규칙·그룹·per-type 구분과 후처리 필터
+ * 개념을 폐기했다 — 문항 텍스트 전체를 한 번에 검토해 오류(finding)를 직접 보고한다.
  *
  * 정의 출처(표류 방지):
- *   - 레이어/그룹 구성: src/core/pipeline.py (LAYER0_TYPES·LAYER1_GROUPS·LAYER2_TYPES)
- *   - 후처리 필터:      src/postprocess.py (F1~F5)
- *   - 유형 카탈로그:    web/lib/constants.ts (ANOMALY_TYPES)
+ *   - 검출 로직:   src/core/pipeline.py (run_pipeline)
+ *   - 출력 계약:   prompts/_shared/output_schema.json (Finding · error_type 11-enum)
+ *   - 유형 카탈로그: web/lib/constants.ts (ERROR_TYPES)
  *
  * 데이터 fetch 없는 서버 컴포넌트. 다크 전용(Supabase Studio 컨셉).
  */
 
-import {
-  ANOMALY_TYPES,
-  ANOMALY_TYPE_ORDER,
-  LAYER_META,
-  type AnomalyTypeMeta,
-} from "@/lib/constants";
-import type { Layer } from "@/lib/types";
-import { LayerBadge } from "@/components/dashboard/LayerBadge";
+import { ERROR_TYPE_ORDER, errorTypeMeta } from "@/lib/constants";
+import type { ErrorType } from "@/lib/types";
 
-// ── constants 파생: 레이어별 유형 / L1 그룹별 유형 ───────────────────────────
-const BY_LAYER: Record<Layer, AnomalyTypeMeta[]> = { 0: [], 1: [], 2: [] };
-for (const code of ANOMALY_TYPE_ORDER) {
-  const meta = ANOMALY_TYPES[code];
-  BY_LAYER[meta.layer].push(meta);
-}
-
-// L1 은 프롬프트 묶음(G1·G4·G5) 단위로 1회 호출 → 그룹별로 다시 묶어 보여준다.
-const GROUP_LABEL: Record<string, string> = {
-  G1: "맞춤법·표기",
-  G4: "법령 도메인",
-  G5: "편집·정답노출",
-};
-const L1_GROUPS: { group: string; label: string; types: AnomalyTypeMeta[] }[] = [];
-for (const m of BY_LAYER[1]) {
-  const key = m.group ?? "기타";
-  let g = L1_GROUPS.find((x) => x.group === key);
-  if (!g) {
-    g = { group: key, label: GROUP_LABEL[key] ?? key, types: [] };
-    L1_GROUPS.push(g);
-  }
-  g.types.push(m);
-}
-
-const LAYER_METHOD: Record<Layer, { method: string; cost: string }> = {
-  0: { method: "규칙 · 정규식", cost: "AI 0회" },
-  1: { method: "묶음(그룹) LLM", cost: "그룹당 1회" },
-  2: { method: "유형별 LLM", cost: "유형당 1회" },
-};
-
-const LAYER_NOTE: Record<Layer, string> = {
-  0: "기계적으로 판정 가능한 구조 오류는 AI 없이 규칙으로 즉시 검출합니다(비용 0).",
-  1: "성격이 비슷한 유형을 한 번의 호출로 묶어 검사해 호출 수를 줄입니다(비용 절감).",
-  2: "묶기 어려운 미묘한 유형은 유형별 전용 프롬프트로 1:1 정밀 검사합니다.",
-};
-
-// ── 소형 표현 요소 ───────────────────────────────────────────────────────────
-function TypeChip({ m }: { m: AnomalyTypeMeta }) {
+// ── 유형 칩 ───────────────────────────────────────────────────────────────────
+function TypeChip({ code }: { code: ErrorType }) {
+  const m = errorTypeMeta(code);
   return (
     <span className="inline-flex items-center gap-1 rounded border border-border bg-secondary/40 px-1.5 py-0.5 text-[11px] text-foreground/90">
-      <span className="font-mono text-[10px] text-muted-foreground/70">{m.code}</span>
+      <span
+        className="size-1.5 rounded-full"
+        style={{ backgroundColor: m.color }}
+      />
       {m.label}
     </span>
   );
 }
+
+// 카테고리별로 유형을 묶어 색 의미를 함께 보여준다.
+const CATEGORY_ORDER = ["표기", "문장", "선택지", "내용", "치명", "기타"];
+const BY_CATEGORY: { category: string; codes: ErrorType[] }[] =
+  CATEGORY_ORDER.map((category) => ({
+    category,
+    codes: ERROR_TYPE_ORDER.filter(
+      (c) => errorTypeMeta(c).category === category
+    ),
+  })).filter((g) => g.codes.length > 0);
 
 function Section({
   step,
@@ -92,23 +64,22 @@ function Section({
   );
 }
 
-function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
+function DetailCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="rounded-md border border-border bg-secondary/30 p-3">
       <p className="mb-1 text-[12px] font-medium text-foreground">{title}</p>
-      <p className="text-[12px] leading-relaxed text-muted-foreground">{children}</p>
+      <p className="text-[12px] leading-relaxed text-muted-foreground">
+        {children}
+      </p>
     </div>
   );
 }
-
-// ── 후처리 필터 (출처: src/postprocess.py docstring) ─────────────────────────
-const FILTERS: { id: string; text: string }[] = [
-  { id: "F1", text: "같은 문항에서 오자(A02)와 띄어쓰기(A06)가 함께 잡히면, 오자를 띄어쓰기로 오분류한 A06을 제거합니다." },
-  { id: "F2", text: "낙서형1(A11)과 낙서형2(A12)가 함께 잡히면 중복인 A11을 제거합니다(A12 우선)." },
-  { id: "F3", text: "띄어쓰기(A06) 원문에 ‘|’가 있으면 마크다운 표 파싱 아티팩트로 보고 제거합니다." },
-  { id: "F4", text: "오자(A02) 근거에 ‘의미상·문맥상·사전에 있는’ 같은 판단 표현이 있으면 사전 등재어 오분류로 제거합니다." },
-  { id: "F5", text: "오자(A02)·탈자(A16) 교정 전후 단어가 음절을 전혀 공유하지 않으면, 자모 오타가 아닌 의미 교체로 보고 제거합니다." },
-];
 
 // ── 메인 ─────────────────────────────────────────────────────────────────────
 export function PipelineGuide() {
@@ -120,19 +91,21 @@ export function PipelineGuide() {
           윤문 분석 파이프라인
         </h1>
         <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-          시험지 한 부가 업로드부터 검수 확정까지 거치는 전 과정입니다. 비싼 AI
-          호출을 최소화하려고, 규칙으로 잡을 수 있는 건 규칙으로, 판단이 필요한
-          것만 AI로 검사합니다.
+          시험지 한 부가 업로드부터 검수 확정까지 거치는 전 과정입니다. 각 문항을
+          AI가 한 번에 통째로 검토(holistic)해, 발견한 오류를 위치·원문·이유·수정안
+          단위로 직접 보고합니다.
         </p>
         {/* 흐름 한눈에 */}
         <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
-          {["업로드", "파싱", "공급자 결정", "검사 L0→L1→L2", "후처리", "결과·검수"].map(
+          {["업로드", "파싱", "공급자 결정", "문항별 검출", "결과·검수"].map(
             (s, i, arr) => (
               <span key={s} className="flex items-center gap-1.5">
                 <span className="rounded-md border border-border bg-secondary/40 px-2 py-0.5 text-foreground/90">
                   {s}
                 </span>
-                {i < arr.length - 1 && <span className="text-muted-foreground/50">→</span>}
+                {i < arr.length - 1 && (
+                  <span className="text-muted-foreground">→</span>
+                )}
               </span>
             )
           )}
@@ -151,110 +124,71 @@ export function PipelineGuide() {
 
         {/* 2. 공급자 결정 */}
         <Section step="2" title="LLM 공급자 결정 (분석 전 점검)">
-          로컬 LLM(gpt-oss / exaone 자동탐지) 또는 Claude Haiku 중에서 선택합니다.
-          <strong className="font-medium text-foreground"> 분석을 시작하기 전에
-          서버가 살아있는지 먼저 확인</strong>하고, 응답이 없으면 분석을 시작하지
-          않습니다(빈 세션 방지).
+          폐쇄망 기본은 <strong className="font-medium text-foreground">로컬
+          gemma4(llama.cpp)</strong> 이며, 필요 시 Claude Haiku(외부망)도 선택할 수
+          있습니다. 후보 엔드포인트를 자동탐지해 살아있는 서버·실제 모델을 채택하고,
+          <strong className="font-medium text-foreground">
+            {" "}
+            분석 전에 서버 가용성을 먼저 확인
+          </strong>
+          해 응답이 없으면 분석을 시작하지 않습니다(빈 세션 방지).
         </Section>
 
-        {/* 3. 검사 단계 — 표를 하위에 */}
-        <Section step="3" title="검사 단계 (3레이어 하이브리드)">
-          값싼 검사부터 단계적으로 적용해 비용과 정확도를 맞춥니다. 아래 표가 각
-          레이어가 무엇을 어떻게 검사하는지 보여줍니다.
-
-          {/* 하위: 레이어별 검사 표 */}
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full border-collapse text-left">
-              <thead>
-                <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground/70">
-                  <th className="py-2 pr-3 font-medium">레이어</th>
-                  <th className="py-2 pr-3 font-medium">방식</th>
-                  <th className="py-2 pr-3 font-medium">비용</th>
-                  <th className="py-2 font-medium">검사 유형</th>
-                </tr>
-              </thead>
-              <tbody>
-                {([0, 1, 2] as Layer[]).map((layer) => (
-                  <tr key={layer} className="border-b border-border/60 align-top">
-                    <td className="py-3 pr-3">
-                      <LayerBadge layer={layer} />
-                    </td>
-                    <td className="py-3 pr-3 text-[12px] text-foreground">
-                      {LAYER_METHOD[layer].method}
-                    </td>
-                    <td className="py-3 pr-3 font-mono text-[12px] text-muted-foreground">
-                      {LAYER_METHOD[layer].cost}
-                    </td>
-                    <td className="py-3">
-                      {layer === 1 ? (
-                        <div className="flex flex-col gap-2">
-                          {L1_GROUPS.map((g) => (
-                            <div key={g.group} className="flex flex-wrap items-center gap-1.5">
-                              <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                                {g.group} {g.label}
-                              </span>
-                              {g.types.map((m) => (
-                                <TypeChip key={m.code} m={m} />
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {BY_LAYER[layer].map((m) => (
-                            <TypeChip key={m.code} m={m} />
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* 3. 문항별 검출 (holistic) */}
+        <Section step="3" title="문항별 검출 (holistic — 문항당 LLM 1콜 · 병렬)">
+          예전의 규칙/그룹/유형별 다단계 검사를 폐기하고, 문항 텍스트 전체를 한
+          번의 호출로 검토합니다. AI는 발견한 오류마다{" "}
+          <strong className="font-medium text-foreground">
+            위치 · 원문 인용 · 유형 · 이유 · 수정안 · 신뢰도
+          </strong>
+          를 갖춘 항목(finding)을 직접 만들어 반환합니다. 한 문항에서 여러 오류가
+          나올 수 있고, 없으면 빈 결과가 됩니다.
+          <div className="mt-3 rounded-md border border-border bg-secondary/30 p-3 text-[12px] leading-relaxed">
+            <p className="mb-1 font-medium text-foreground">병렬 처리 · 출력 강제</p>
+            문항은 <strong className="text-foreground">동시에 3개</strong>씩
+            처리됩니다 — 진행 화면에서 <span style={{ color: "#5b8bff" }}>agentA</span>
+            {" · "}
+            <span style={{ color: "#9a8cf0" }}>agentB</span>
+            {" · "}
+            <span style={{ color: "#e0a83e" }}>agentC</span> 세 레인으로 표시되며,
+            각 에이전트가 지금 몇 번 문항을 보는지 실시간으로 보입니다(완료 순서는
+            문항 난도에 따라 뒤섞일 수 있습니다). 출력은 서버의{" "}
+            <strong className="text-foreground">native grammar(JSON 스키마 강제)</strong>
+            로 형식이 보장되어, 형식 붕괴 없이 11종 유형 중 하나로 분류됩니다.
           </div>
-
-          {/* 레이어별 한 줄 부연 */}
-          <ul className="mt-4 flex flex-col gap-1.5 text-[12px]">
-            {([0, 1, 2] as Layer[]).map((layer) => (
-              <li key={layer} className="flex items-start gap-2">
-                <span className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">
-                  {LAYER_META[layer].short}
+          <div className="mt-4 flex flex-col gap-2.5">
+            {BY_CATEGORY.map((g) => (
+              <div key={g.category} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-12 shrink-0 text-[11px] text-muted-foreground">
+                  {g.category}
                 </span>
-                <span className="text-muted-foreground">{LAYER_NOTE[layer]}</span>
-              </li>
+                {g.codes.map((c) => (
+                  <TypeChip key={c} code={c} />
+                ))}
+              </div>
             ))}
-          </ul>
-        </Section>
-
-        {/* 4. 후처리 */}
-        <Section step="4" title="후처리 (오탐 자동 제거)">
-          탐지 결과 중 알려진 오탐 패턴을 자동으로 걸러냅니다. ‘탐지’ 건수와 ‘오탐
-          제거’ 건수는 결과 화면에서 분리해 표기합니다.
-          <ul className="mt-3 flex flex-col gap-1.5">
-            {FILTERS.map((f) => (
-              <li key={f.id} className="flex items-start gap-2 text-[12px]">
-                <span className="mt-0.5 shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                  {f.id}
-                </span>
-                <span className="text-muted-foreground">{f.text}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-[11px] text-muted-foreground/70">
-            적용 순서: F3 → F4 → F5 → F1 → F2
+          </div>
+          <p className="mt-3 text-[12px] text-muted-foreground">
+            신뢰도는 높음 · 보통 · 낮음 세 단계로 표기되어, 검수자가 우선순위를
+            판단할 수 있습니다.
           </p>
         </Section>
 
-        {/* 5. 결과 & 검수 */}
-        <Section step="5" title="결과 영속화 & 검수">
-          탐지되었거나 후처리로 필터된 항목만 저장합니다. 검수자는 각 항목을
-          <strong className="font-medium text-foreground"> 확인 · 반려 · 보류</strong>
+        {/* 4. 결과 & 검수 */}
+        <Section step="4" title="결과 영속화 & 검수">
+          탐지된 finding 만 저장합니다. 검수자는 각 항목을
+          <strong className="font-medium text-foreground">
+            {" "}
+            확인 · 반려 · 보류
+          </strong>
           로 확정하고, 결과를 검증결과 파일(xlsx·pdf)로 내보낼 수 있습니다.
         </Section>
 
-        {/* 기술 상세 — 접이식 없이 펼쳐서 */}
+        {/* 기술 상세 */}
         <section className="rounded-lg border border-border bg-card p-5">
-          <h2 className="mb-1 text-[15px] font-medium text-foreground">기술 상세</h2>
+          <h2 className="mb-1 text-[15px] font-medium text-foreground">
+            기술 상세
+          </h2>
           <p className="mb-4 text-[12px] text-muted-foreground">
             안정적인 검출을 위해 내부에서 동작하는 장치들입니다.
           </p>
@@ -264,35 +198,46 @@ export function PipelineGuide() {
               출력)하므로, 지문 인용 기호를 ‘(지문)’으로 안전하게 치환합니다.
             </DetailCard>
             <DetailCard title="공급자 자동탐지 & 사전 점검">
-              설정된 로컬 엔드포인트(예: 8080·8081)를 순서대로 health 체크해 살아있는
-              서버와 그 서버가 보고하는 실제 모델을 자동 채택합니다. 전부 응답이 없으면
+              설정된 로컬 엔드포인트를 순서대로 health 체크해 살아있는 서버와 그
+              서버가 보고하는 실제 모델을 자동 채택합니다. 전부 응답이 없으면
               분석을 시작하지 않습니다.
             </DetailCard>
             <DetailCard title="KV 캐시 격리">
               문항 사이에 캐시가 섞여 검출이 오염되지 않도록, 프롬프트 캐시를 끄고
               서버 슬롯을 분산해 매 호출을 독립적으로 처리합니다.
             </DetailCard>
-            <DetailCard title="결과 정규화">
-              AI가 출력 형식을 어겨도(예: 보조정보를 문자열로 반환) 저장 전에 교정해,
-              결과 조회가 실패하지 않도록 막습니다.
+            <DetailCard title="출력 강제 (native grammar)">
+              출력 스키마를 서버의 GBNF grammar 로 변환해 생성 단계에서 형식을
+              강제합니다(11종 error_type 중 하나). grammar 미지원 공급자는 관용
+              파서로 폴백해 결과 조회가 실패하지 않도록 막습니다.
             </DetailCard>
-            <DetailCard title="실시간 진행 (SSE)">
-              레이어·문항 단위 진행 이벤트를 실시간 스트리밍하며, 화면을 다시 열어도
-              진행 상황을 처음부터 재생합니다.
+            <DetailCard title="안정 운영조건">
+              결정성을 위해 temperature=0, 추론 폭주를 막기 위해 서버 추론예산
+              상한(reasoning-budget)과 충분한 출력 토큰을 적용해 전 문항이 잘림 없이
+              완주하도록 합니다.
             </DetailCard>
-            <DetailCard title="결과 저장 흐름">
-              레이어 결과를 병합(merged) → 후처리 필터(merged_filtered) → 검수용
-              테이블에 적재하며, 탐지/필터된 항목만 남깁니다.
+            <DetailCard title="실시간 진행 (SSE · 병렬)">
+              문항 이벤트(start · q_start · q_done · done)를 실시간 스트리밍합니다.
+              q_start로 어느 <strong className="text-foreground">agent(A·B·C)</strong>가
+              어느 문항을 처리 중인지 즉시 표시되고, 완료된 문항은 탐지 내용이 바로
+              채워집니다. 화면을 다시 열어도 진행과 탐지가 처음부터 재생됩니다.
+            </DetailCard>
+            <DetailCard title="증분 영속 (중간결과 유지)">
+              문항이 끝날 때마다 그 결과를 즉시 저장합니다. 분석 도중 진행 화면에서
+              문항을 클릭하면 탐지 내용을 바로 볼 수 있고, 새로고침해도 중간결과가
+              유지됩니다. 검수(확인·반려·보류)도 분석 중 그 자리에서 가능합니다.
             </DetailCard>
           </div>
         </section>
 
         {/* 출처 각주 */}
-        <p className="px-1 text-[11px] leading-relaxed text-muted-foreground/60">
-          정의 출처 — 레이어/그룹: <code className="font-mono">src/core/pipeline.py</code>,
-          후처리 필터: <code className="font-mono">src/postprocess.py</code>, 유형
-          카탈로그: <code className="font-mono">web/lib/constants.ts</code>. 차수마다
-          문항은 바뀌므로 이 문서는 특정 차수 데이터가 아닌 ‘방식’만 설명합니다.
+        <p className="px-1 text-[11px] leading-relaxed text-muted-foreground">
+          정의 출처 — 검출 로직:{" "}
+          <code className="font-mono">src/core/pipeline.py</code>, 출력 계약:{" "}
+          <code className="font-mono">prompts/_shared/output_schema.json</code>,
+          유형 카탈로그:{" "}
+          <code className="font-mono">web/lib/constants.ts</code>. 차수마다 문항은
+          바뀌므로 이 문서는 특정 차수 데이터가 아닌 ‘방식’만 설명합니다.
         </p>
       </div>
     </div>

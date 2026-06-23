@@ -5,6 +5,7 @@ config.py — .env 기반 공용 설정 로더
 .env 파일이 없거나 항목이 없으면 괄호 안 기본값이 적용됩니다.
 """
 
+import json
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -12,16 +13,39 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).parent.parent
 load_dotenv(ROOT / ".env")
 
+PROMPT_DIR = ROOT / "prompts"
+
+# response_format=json_schema 로 전송하기 전 제거할 메타키 (llama.cpp GBNF 변환기는
+# 무시하지만, 검증된 cert-harness SCHEMA 와 동일하게 순수 스키마만 보낸다).
+_SCHEMA_META_KEYS = ("$schema", "$id", "title", "description")
+
+
+def holistic_schema() -> dict:
+    """
+    holistic 출력 강제용 JSON Schema 를 반환한다 (prompts/_shared/output_schema.json).
+
+    response_format={"type":"json_schema","json_schema":{"name":"review","schema":<이것>}}
+    형태로 llama.cpp 에 전달되어 서버에서 GBNF grammar 로 변환·강제된다. 최상위
+    메타키($schema/$id/title/description)는 제거해 검증된 하네스 SCHEMA 와 동일하게 만든다.
+    """
+    raw = json.loads(
+        (PROMPT_DIR / "_shared" / "output_schema.json").read_text(encoding="utf-8")
+    )
+    return {k: v for k, v in raw.items() if k not in _SCHEMA_META_KEYS}
+
 
 def lm_config() -> dict:
     """로컬 LLM 호출에 필요한 파라미터를 .env 에서 읽어 반환합니다."""
     return {
         "base_url":         os.getenv("LOCAL_BASE_URL",       "http://127.0.0.1:8080/v1"),
         "model":            os.getenv("LLM_MODEL",            "openai/gpt-oss-20b"),
-        "temperature":      float(os.getenv("LLM_TEMPERATURE",      "1.0")),
-        "max_tokens":       int(os.getenv("LLM_MAX_TOKENS",         "16000")),
+        # holistic 운영조건(cert-harness Run E 확정): temp=0(결정성), max_tokens=8000
+        # (thinking 종료 후 content 여력 확보). 서버측 --reasoning-budget 6000 과 짝.
+        "temperature":      float(os.getenv("LLM_TEMPERATURE",      "0")),
+        "max_tokens":       int(os.getenv("LLM_MAX_TOKENS",         "8000")),
         "reasoning_effort": os.getenv("LLM_REASONING_EFFORT", "medium"),
-        "timeout":          int(os.getenv("LLM_TIMEOUT",            "120")),
+        # holistic: gemma4 어려운 문항은 thinking 으로 ~200s. read 타임아웃을 넉넉히.
+        "timeout":          int(os.getenv("LLM_TIMEOUT",            "600")),
         "connect_timeout":  int(os.getenv("LLM_CONNECT_TIMEOUT",    "5")),
         "max_retries":      int(os.getenv("LLM_MAX_RETRIES",        "1")),
         "retry_delay":      int(os.getenv("LLM_RETRY_DELAY",        "5")),
@@ -32,6 +56,7 @@ def lm_config() -> dict:
         "cache_prompt":     os.getenv("LLM_CACHE_PROMPT",     "false").lower() == "true",
         "slot_round_robin": os.getenv("LLM_SLOT_ROUND_ROBIN", "false").lower() == "true",
         "n_slots":          int(os.getenv("LLM_N_SLOTS",      "4")),
+        "parallel_workers": int(os.getenv("LLM_PARALLEL_WORKERS", "3")),
     }
 
 
@@ -45,31 +70,15 @@ def claude_config() -> dict:
     }
 
 
-def clovax_config() -> dict:
-    """
-    Naver HyperCLOVA X(CLOVA Studio) 호출 파라미터를 .env 에서 읽어 반환합니다.
-    CLOVA Studio 는 OpenAI 호환 엔드포인트를 제공하므로 local 과 동일한 OpenAI
-    클라이언트 경로를 쓰되, base_url 과 'nv-' Bearer 키가 다르다.
-    """
-    return {
-        "api_key":     os.getenv("CLOVASTUDIO_API_KEY", "").strip(),
-        "base_url":    os.getenv("CLOVASTUDIO_BASE_URL",
-                                 "https://clovastudio.stream.ntruss.com/v1/openai").strip(),
-        "model":       os.getenv("CLOVASTUDIO_MODEL",       "HCX-005"),
-        "max_tokens":  int(os.getenv("CLOVASTUDIO_MAX_TOKENS",  "2048")),
-        "max_retries": int(os.getenv("CLOVASTUDIO_MAX_RETRIES", "1")),
-        "retry_delay": int(os.getenv("CLOVASTUDIO_RETRY_DELAY", "3")),
-    }
-
-
-VALID_PROVIDERS = ("local", "claude", "clovax")
+VALID_PROVIDERS = ("local", "claude")
 
 
 # 자동탐지 공통 후보(.env 미설정 시). 흔한 로컬 OpenAI 호환 포트를 순서대로 본다:
-# Ollama(11434) → llama.cpp(8080) → LM Studio(1234). 첫 healthy 가 채택된다.
+# Ollama(11434) → llama.cpp(8080/8081) → LM Studio(1234). 첫 healthy 가 채택된다.
 DEFAULT_LOCAL_CANDIDATES = [
     "http://127.0.0.1:11434/v1",  # Ollama (OpenAI 호환 엔드포인트)
     "http://127.0.0.1:8080/v1",   # llama.cpp
+    "http://127.0.0.1:8081/v1",   # llama.cpp (alternate model)
     "http://127.0.0.1:1234/v1",   # LM Studio
 ]
 
@@ -79,11 +88,11 @@ def local_base_urls() -> list[str]:
     로컬 LLM 후보 base_url 목록(자동탐지 순서). 첫 healthy 서버를 채택한다.
 
     - LOCAL_BASE_URLS(콤마구분)가 있으면 그 목록만 순서대로(= 우선순위) 사용한다.
-      예: ollama(11434), gpt-oss(8080) 두 엔드포인트를 모두 적어두면 분석 전
+      예: ollama(11434), gpt-oss(8080), exaone(8081)을 적어두면 분석 전
           health 체크로 살아있는 쪽을 자동 채택한다.
     - LOCAL_BASE_URL(단일)만 있으면 그것을 최우선으로 두고, 공통 후보를 폴백으로
       덧붙인다(명시 서버가 죽어도 Ollama 등을 자동탐지).
-    - 둘 다 없으면 공통 후보(11434/8080/1234)만 스캔한다.
+    - 둘 다 없으면 공통 후보(11434/8080/8081/1234)만 스캔한다.
     """
     multi = os.getenv("LOCAL_BASE_URLS", "").strip()
     if multi:
@@ -187,11 +196,6 @@ def claude_configured() -> bool:
     return bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
 
 
-def clovax_configured() -> bool:
-    """CLOVASTUDIO_API_KEY 가 환경(.env 포함)에 존재하는지."""
-    return bool(os.getenv("CLOVASTUDIO_API_KEY", "").strip())
-
-
 def build_config(provider: str | None = None) -> dict:
     """
     파이프라인이 사용하는 단일 cfg 를 만든다. local 파라미터를 기반으로 하고
@@ -201,23 +205,17 @@ def build_config(provider: str | None = None) -> dict:
     provider = resolve_provider(provider)
     cfg = lm_config()
     c = claude_config()
-    cl = clovax_config()
-    # 자동탐지 후보. 실제 채택 base_url/model 은 preflight_local() 이 프로브로 주입.
     cfg["base_url_candidates"] = local_base_urls()
     cfg["provider"]          = provider
     cfg["claude_model"]      = c["model"]
     cfg["claude_max_tokens"] = c["max_tokens"]
     cfg["claude_api_key"]    = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    cfg["clova_model"]       = cl["model"]
-    cfg["clova_max_tokens"]  = cl["max_tokens"]
-    cfg["clova_base_url"]    = cl["base_url"]
-    cfg["clova_api_key"]     = cl["api_key"]
+    # holistic 출력 강제 스키마. local(llama.cpp) 은 response_format=json_schema 로
+    # GBNF 강제, grammar 미지원 공급자(claude 등)는 폴백 파서가 방어한다.
+    cfg["response_schema"]   = holistic_schema()
     if provider == "claude":
         cfg["max_retries"] = c["max_retries"]
         cfg["retry_delay"] = c["retry_delay"]
-    elif provider == "clovax":
-        cfg["max_retries"] = cl["max_retries"]
-        cfg["retry_delay"] = cl["retry_delay"]
     return cfg
 
 
@@ -229,9 +227,6 @@ def print_lm_config(cfg: dict, overrides: dict | None = None) -> None:
     lines.append(f"  provider={provider} {'(CLI)' if 'provider' in overrides else '(.env)'}")
     if provider == "claude":
         keys = ("claude_model", "claude_max_tokens", "max_retries", "retry_delay")
-    elif provider == "clovax":
-        keys = ("clova_base_url", "clova_model", "clova_max_tokens",
-                "temperature", "max_retries", "retry_delay")
     else:
         keys = ("base_url", "model", "temperature", "max_tokens", "reasoning_effort",
                 "timeout", "max_retries", "retry_delay")

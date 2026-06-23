@@ -14,7 +14,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Cloud, HardDrive, Sparkles } from "lucide-react";
+import { HardDrive, Sparkles } from "lucide-react";
 
 import { getLlmConfig, queryKeys } from "@/lib/api";
 import { useProviderStore } from "@/lib/stores/provider";
@@ -29,7 +29,6 @@ import {
 const OPTIONS: { id: LlmProvider; label: string; short: string; Icon: typeof HardDrive }[] = [
   { id: "local", label: "로컬 LLM", short: "로컬", Icon: HardDrive },
   { id: "claude", label: "Claude Haiku", short: "Haiku", Icon: Sparkles },
-  { id: "clovax", label: "HyperCLOVA X", short: "CLOVA", Icon: Cloud },
 ];
 
 /** 토글 상태 + 서버 메타를 묶어 반환하는 공유 훅. */
@@ -44,18 +43,34 @@ export function useLlmProvider() {
     staleTime: 5 * 60_000,
   });
 
+  const configLoaded = config !== undefined;
+  const configAvailable = config != null;
+  const claudeAvailable = configAvailable ? config.claudeConfigured : false;
+  const localAvailable = configAvailable
+    ? (config.providers.find((p) => p.id === "local")?.available ?? true)
+    : false;
+
   useEffect(() => {
     if (config?.default) hydrateDefault(config.default);
   }, [config?.default, hydrateDefault]);
 
-  const claudeAvailable = config ? config.claudeConfigured : true;
-  const clovaxAvailable = config ? config.clovaxConfigured : true;
-  // 로컬 가용성은 /config/llm 의 실시간 프로브 결과(providers[local].available)에서 읽는다.
-  // config 로딩 전에는 true 로 두어 깜빡임을 막는다(서버 응답 후 정확값으로 갱신).
-  const localAvailable = config
-    ? (config.providers.find((p) => p.id === "local")?.available ?? true)
-    : true;
-  return { provider, setProvider, config, claudeAvailable, clovaxAvailable, localAvailable };
+  useEffect(() => {
+    if (!configAvailable) return;
+    const activeAvailable =
+      provider === "claude" ? claudeAvailable : localAvailable;
+    if (activeAvailable) return;
+    const next = config?.providers.find((p) => p.available)?.id;
+    if (next && next !== provider) setProvider(next);
+  }, [claudeAvailable, config, configAvailable, localAvailable, provider, setProvider]);
+
+  return {
+    provider,
+    setProvider,
+    config,
+    configLoaded,
+    claudeAvailable,
+    localAvailable,
+  };
 }
 
 export function LlmProviderToggle({
@@ -65,7 +80,7 @@ export function LlmProviderToggle({
   className?: string;
   size?: "sm" | "md";
 }) {
-  const { provider, setProvider, config, claudeAvailable, clovaxAvailable, localAvailable } =
+  const { provider, setProvider, config, claudeAvailable, localAvailable } =
     useLlmProvider();
   const localMeta = config?.providers.find((p) => p.id === "local");
   const cols = OPTIONS.length;
@@ -105,14 +120,11 @@ export function LlmProviderToggle({
         const active = id === provider;
         const disabled =
           (id === "claude" && !claudeAvailable) ||
-          (id === "clovax" && !clovaxAvailable) ||
           (id === "local" && !localAvailable);
         const reason =
           id === "claude"
             ? `${label} — 서버에 ANTHROPIC_API_KEY 가 설정되지 않았습니다.`
-            : id === "clovax"
-              ? `${label} — 서버에 CLOVASTUDIO_API_KEY 가 설정되지 않았습니다.`
-              : `${label} — 서버 응답이 없습니다. LLM 서버(LOCAL_BASE_URLS) 실행 여부를 확인하세요.`;
+            : `${label} — 서버 응답이 없습니다. LLM 서버(LOCAL_BASE_URLS) 실행 여부를 확인하세요.`;
         const btn = (
           <button
             key={id}
@@ -191,7 +203,6 @@ function prettyModel(model: string): string {
   if (m.includes("sonnet")) return "Claude Sonnet";
   if (m.includes("opus")) return "Claude Opus";
   if (m.includes("gpt-oss")) return "gpt-oss";
-  if (m.includes("hcx") || m.includes("clova")) return "HyperCLOVA X";
   return model;
 }
 

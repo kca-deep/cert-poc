@@ -19,7 +19,7 @@
     Next.js port (default 3000).
 
 .PARAMETER Install
-    Install dependencies before launching (pip install -r requirements.txt + npm install).
+    Install dependencies before launching (.venv creation + pip install -r requirements.txt + npm install).
 
 .PARAMETER NoReload
     Disable uvicorn auto-reload (avoids restarts during long LLM runs).
@@ -61,18 +61,34 @@ function Test-Command($name) {
 if (-not (Test-Command "python")) { throw "python not found on PATH." }
 if (-not (Test-Command "npm"))    { throw "npm not found on PATH." }
 
+$VenvDir = Join-Path $Root ".venv"
+$VenvPy = Join-Path $VenvDir "Scripts\python.exe"
+
+function Ensure-Venv {
+    if (Test-Path $VenvPy) { return }
+    Write-Host "[setup] python -m venv .venv" -ForegroundColor Yellow
+    python -m venv $VenvDir
+}
+
 # -- Install dependencies (-Install) ---------------------------------
 if ($Install) {
+    Ensure-Venv
     Write-Host "[install] pip install -r requirements.txt" -ForegroundColor Yellow
-    python -m pip install -r (Join-Path $Root "requirements.txt")
+    & $VenvPy -m pip install -r (Join-Path $Root "requirements.txt")
     if (Test-Path (Join-Path $Root "api\requirements.txt")) {
         Write-Host "[install] pip install -r api\requirements.txt" -ForegroundColor Yellow
-        python -m pip install -r (Join-Path $Root "api\requirements.txt")
+        & $VenvPy -m pip install -r (Join-Path $Root "api\requirements.txt")
     }
     Write-Host "[install] npm install (web)" -ForegroundColor Yellow
     Push-Location $WebDir
     npm install
     Pop-Location
+}
+
+if (Test-Path $VenvPy) {
+    $PythonCmd = $VenvPy
+} else {
+    $PythonCmd = "python"
 }
 
 # -- Port-in-use check (warning only) --------------------------------
@@ -91,7 +107,7 @@ foreach ($p in @($ApiPort, $WebPort)) {
 
 # -- Backend (FastAPI) launch arguments ------------------------------
 $reloadArg = if ($NoReload) { "" } else { "--reload" }
-$apiCmd = "python -m uvicorn api.main:app --port $ApiPort $reloadArg"
+$apiCmd = "`"$PythonCmd`" -m uvicorn api.main:app --port $ApiPort $reloadArg"
 
 # -- Frontend (Next.js) launch arguments -----------------------------
 $webCmd = "npm run dev -- --port $WebPort"

@@ -1,23 +1,23 @@
 /**
- * lib/sse.ts — 파이프라인 진행 상태 훅.
+ * lib/sse.ts — 파이프라인 진행 상태 훅 (holistic 문항단위).
  *
  * 한 훅으로 두 모드를 모두 지원한다 (NEXT_PUBLIC_USE_MOCK 로 분기):
  *   - mock : 타이머로 ProgressEvent 를 생성해 클라이언트에서 시뮬레이션
  *   - real : `${API_BASE}/sessions/{id}/progress` 의 SSE(EventSource)를 구독
  *
  * 두 모드 모두 동일한 reduce(reduceEvent) 로 ProgressEvent → ProgressState 를
- * 만든다 → 이벤트 처리 로직이 한 곳에만 존재(이중관리 없음). 백엔드 SSE 이벤트
- * 키는 src/core/events.py(=web/lib/types.ts ProgressEvent)의 camelCase 와
- * 정확히 일치하므로 무변환으로 소비한다.
+ * 만든다. 백엔드 SSE 이벤트 키는 src/core/events.py(=web/lib/types.ts ProgressEvent)
+ * 의 camelCase 와 정확히 일치하므로 무변환으로 소비한다.
  *
- * 반환 타입(ProgressState)과 훅 시그니처는 PipelineProgress 의 계약이다.
+ * ★ holistic 전환: 레이어/유형 단위 진행을 폐기하고 **문항 단위**(start·q_done·done)
+ *   진행으로 재작성. ProgressState 는 문항 도트 + 누적 findings 건수만 추적한다.
  */
 
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 
-import type { Layer, ProgressEvent } from "./types";
+import type { Finding, ProgressEvent } from "./types";
 import { API_BASE } from "./api";
 
 const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK !== "false";
@@ -26,34 +26,20 @@ const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK !== "false";
 // Exported types (contract — PipelineProgress 가 의존)
 // ---------------------------------------------------------------------------
 
-export type ProgressPhase =
-  | "starting"
-  | "layer0"
-  | "layer1"
-  | "layer2"
-  | "postprocess"
-  | "done"
-  | "error";
+export type ProgressPhase = "starting" | "running" | "done" | "error";
 
-export interface LayerProgress {
-  layer: Layer;
-  status: "pending" | "active" | "done";
-  processed: number;
-  totalQ: number;
-  found: number;
-  currentType?: string; // 가장 최근 처리한 유형 코드 (진행 중 표시용, L1/L2)
-  currentQ?: number; // 가장 최근 처리한 문항 번호
-}
-
-export type QuestionDotStatus = "pending" | "active" | "done";
+export type QuestionDotStatus = "pending" | "active" | "done" | "error";
 
 export interface ProgressState {
   phase: ProgressPhase;
-  layers: LayerProgress[]; // 항상 3개 (L0, L1, L2)
   questionStatus: Record<number, QuestionDotStatus>;
+  findingsByQ: Record<number, Finding[]>; // 문항별 실시간 findings (q_done 누적)
+  workerByQ: Record<number, number>; // 현재 처리 중 문항 → 논리 레인(agentA/B/C)
   totalQ: number;
-  foundCount: number;
-  filteredCount: number; // 후처리 필터로 제거된 오탐 건수 (postprocess 이벤트)
+  processed: number; // 검토 끝난 문항 수(완료+실패)
+  errorQ: number; // 오류가 1건 이상 탐지된 문항 수
+  erroredQ: number; // 검토 실패(타임아웃/파싱오류) 문항 수
+  foundCount: number; // 누적 findings 건수
   elapsedSeconds: number;
   error?: string;
 }
@@ -69,16 +55,6 @@ export interface UseSessionProgressOptions {
 // 초기 상태 + reduce (mock/real 공유)
 // ---------------------------------------------------------------------------
 
-function makeLayers(totalQ: number): LayerProgress[] {
-  return ([0, 1, 2] as Layer[]).map((l) => ({
-    layer: l,
-    status: "pending" as const,
-    processed: 0,
-    totalQ,
-    found: 0,
-  }));
-}
-
 function makeQuestionStatus(
   totalQ: number,
   initial: QuestionDotStatus = "pending"
@@ -91,18 +67,22 @@ function makeQuestionStatus(
 function initialState(totalQ: number): ProgressState {
   return {
     phase: "starting",
-    layers: makeLayers(totalQ),
     questionStatus: makeQuestionStatus(totalQ),
+    findingsByQ: {},
+    workerByQ: {},
     totalQ,
+    processed: 0,
+    errorQ: 0,
+    erroredQ: 0,
     foundCount: 0,
-    filteredCount: 0,
     elapsedSeconds: 0,
   };
 }
 
-function doneCount(qs: Record<number, QuestionDotStatus>): number {
+// 검토가 끝난(완료 또는 실패) 문항 수.
+function processedCount(qs: Record<number, QuestionDotStatus>): number {
   let n = 0;
-  for (const v of Object.values(qs)) if (v === "done") n++;
+  for (const v of Object.values(qs)) if (v === "done" || v === "error") n++;
   return n;
 }
 
@@ -115,76 +95,83 @@ export function reduceEvent(
   ev: ProgressEvent
 ): ProgressState {
   switch (ev.event) {
-    case "layer_start": {
-      const idx = ev.layer as number;
+    case "start": {
       const totalQ = ev.totalQ ?? prev.totalQ;
-      const layers = prev.layers.map((l, i) =>
-        i === idx ? { ...l, status: "active" as const, totalQ } : l
-      );
-      // L1, L2 진입 시 문항 도트를 새로 채운다 (레이어마다 전 문항 재순회).
-      const questionStatus =
-        idx > 0 ? makeQuestionStatus(totalQ) : prev.questionStatus;
-      const phase = `layer${idx}` as ProgressPhase;
-      return { ...prev, phase, layers, questionStatus, totalQ };
-    }
-
-    case "q_layer0_done": {
-      const qs = { ...prev.questionStatus, [ev.q]: "done" as const };
-      const foundHere = Object.values(ev.types).filter(Boolean).length;
-      const layers = prev.layers.map((l, i) =>
-        i === 0
-          ? { ...l, processed: doneCount(qs), found: l.found + foundHere, currentQ: ev.q }
-          : l
-      );
       return {
         ...prev,
-        questionStatus: qs,
-        layers,
-        foundCount: prev.foundCount + foundHere,
+        phase: "running",
+        totalQ,
+        questionStatus: makeQuestionStatus(totalQ),
+        findingsByQ: {},
+        workerByQ: {},
+        processed: 0,
+        errorQ: 0,
+        erroredQ: 0,
+        foundCount: 0,
       };
     }
 
-    case "q_type_done": {
-      const idx = ev.layer as number;
-      const qs = { ...prev.questionStatus, [ev.q]: "done" as const };
-      const layers = prev.layers.map((l, i) =>
-        i === idx
-          ? {
-              ...l,
-              processed: doneCount(qs),
-              found: l.found + (ev.found ? 1 : 0),
-              currentType: ev.typeCode,
-              currentQ: ev.q,
-            }
-          : l
-      );
+    case "q_start": {
+      // 워커가 문항을 집어듦 → active(깜빡임) + 레인(agent) 기록. 이미 끝난 문항이면
+      // (이벤트 순서 역전/replay) 유지한다.
+      const st = prev.questionStatus[ev.q];
+      if (st === "done" || st === "error") return prev;
       return {
         ...prev,
-        questionStatus: qs,
-        layers,
-        foundCount: prev.foundCount + (ev.found ? 1 : 0),
+        questionStatus: { ...prev.questionStatus, [ev.q]: "active" as const },
+        workerByQ: { ...prev.workerByQ, [ev.q]: ev.worker },
       };
     }
 
-    case "layer_done": {
-      const idx = ev.layer as number;
-      const layers = prev.layers.map((l, i) =>
-        i === idx ? { ...l, status: "done" as const, found: ev.found } : l
-      );
-      return { ...prev, layers };
+    case "q_done": {
+      // error 가 있으면 '검토 실패'(타임아웃/파싱오류) — done 과 구분.
+      const errored = !!ev.error;
+      const qs = {
+        ...prev.questionStatus,
+        [ev.q]: (errored ? "error" : "done") as QuestionDotStatus,
+      };
+      // 실패 문항은 findings 없음. 정상 문항은 q 키로 덮어쓰기(replay 멱등).
+      const findingsByQ = {
+        ...prev.findingsByQ,
+        [ev.q]: errored ? [] : ev.findings ?? [],
+      };
+      const workerByQ = { ...prev.workerByQ };
+      delete workerByQ[ev.q];
+      let foundCount = 0;
+      let errorQ = 0;
+      for (const fs of Object.values(findingsByQ)) {
+        foundCount += fs.length;
+        if (fs.length > 0) errorQ += 1;
+      }
+      let erroredQ = 0;
+      for (const v of Object.values(qs)) if (v === "error") erroredQ += 1;
+      return {
+        ...prev,
+        questionStatus: qs,
+        processed: processedCount(qs),
+        findingsByQ,
+        workerByQ,
+        errorQ,
+        erroredQ,
+        foundCount,
+      };
     }
 
-    case "postprocess":
-      return { ...prev, phase: "postprocess", filteredCount: ev.filtered };
-
-    case "done":
+    case "done": {
+      // 검토 실패 문항은 'error' 로 유지(완료로 덮지 않음).
+      const qs: Record<number, QuestionDotStatus> = {};
+      for (let q = 1; q <= prev.totalQ; q++) {
+        qs[q] = prev.questionStatus[q] === "error" ? "error" : "done";
+      }
       return {
         ...prev,
         phase: "done",
         foundCount: ev.totalFound,
         elapsedSeconds: ev.elapsed,
-        layers: prev.layers.map((l) => ({ ...l, status: "done" as const })),
+        questionStatus: qs,
+        processed: prev.totalQ,
       };
+    }
 
     case "error":
       return { ...prev, phase: "error", error: ev.message };
@@ -204,7 +191,9 @@ export function useSessionProgress(
   const { sessionId, totalQ, enabled = true, onDone } = opts;
 
   const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
 
   const [state, setState] = useState<ProgressState>(() =>
     initialState(totalQ)
@@ -245,7 +234,6 @@ export function useSessionProgress(
       cancelled = true;
       cleanups.forEach((fn) => fn());
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, sessionId, totalQ]);
 
   return state;
@@ -255,15 +243,7 @@ export function useSessionProgress(
 // real: EventSource 구독
 // ---------------------------------------------------------------------------
 
-const EVENT_NAMES = [
-  "layer_start",
-  "q_layer0_done",
-  "q_type_done",
-  "layer_done",
-  "postprocess",
-  "done",
-  "error",
-] as const;
+const EVENT_NAMES = ["start", "q_start", "q_done", "done", "error"] as const;
 
 function startEventSource(
   sessionId: string,
@@ -273,8 +253,7 @@ function startEventSource(
   const url = `${API_BASE}/sessions/${sessionId}/progress`;
   const es = new EventSource(url);
 
-  // 백엔드(sse_starlette)는 `event: <name>` 으로 named event 를 보내므로
-  // 7종 모두 addEventListener 로 등록한다. data 는 ProgressEvent JSON.
+  // 백엔드(sse_starlette)는 `event: <name>` 으로 named event 를 보낸다.
   const handler = (e: MessageEvent) => {
     if (isCancelled()) return;
     try {
@@ -290,7 +269,6 @@ function startEventSource(
     es.addEventListener(name, handler as EventListener);
   }
   es.onerror = () => {
-    // 연결 오류: done 전이면 error 이벤트로 표면화하고 닫는다.
     if (isCancelled()) return;
     emit({ event: "error", message: "진행 스트림 연결이 끊겼습니다." });
     es.close();
@@ -303,14 +281,34 @@ function startEventSource(
 // mock: 타이머로 ProgressEvent 생성 (real 과 동일 reduce 로 소비)
 // ---------------------------------------------------------------------------
 
-/** 대략 5–9건이 잡히도록 하는 결정적 found 규칙 (Math.random 미사용). */
-function isFound(q: number, layer: number): boolean {
-  return (q * 7 + layer * 3) % 5 === 0;
+const MOCK_TYPES = [
+  "맞춤법",
+  "띄어쓰기",
+  "선택지중복",
+  "용어오류",
+  "약어오기",
+] as const;
+
+/** 대략 1/5 문항에서 오류가 잡히도록 하는 결정적 규칙 (Math.random 미사용). */
+function mockFindings(q: number): Finding[] {
+  if (q % 5 !== 0) return [];
+  return [
+    {
+      id: `${q}-0`,
+      qNumber: q,
+      location: "보기 ②",
+      quote: "예시 인용",
+      errorType: MOCK_TYPES[q % MOCK_TYPES.length],
+      reason: "데모용 합성 오류",
+      suggestion: "수정안",
+      confidence: "보통",
+    },
+  ];
 }
 
 function stepInterval(totalQ: number): number {
-  const raw = Math.floor(9000 / Math.max(1, totalQ * 3));
-  return Math.max(80, Math.min(200, raw));
+  const raw = Math.floor(6000 / Math.max(1, totalQ));
+  return Math.max(80, Math.min(260, raw));
 }
 
 function startMockSimulation(
@@ -332,38 +330,21 @@ function startMockSimulation(
     );
   };
 
-  const simulateLayer = (layer: Layer) => {
-    at(0, () => emit({ event: "layer_start", layer, totalQ }));
-    let layerFound = 0;
-    for (let q = 1; q <= totalQ; q++) {
-      const thisQ = q;
-      const found = isFound(q, layer);
-      at(interval, () => {
-        if (layer === 0) {
-          emit({ event: "q_layer0_done", q: thisQ, types: { A01: found } });
-        } else {
-          emit({
-            event: "q_type_done",
-            layer,
-            q: thisQ,
-            typeCode: "A01",
-            found,
-            ...(found ? { confidence: "medium" as const } : {}),
-          });
-        }
-      });
-      if (found) {
-        layerFound += 1;
-        foundTotal += 1;
-      }
-    }
-    at(interval, () => emit({ event: "layer_done", layer, found: layerFound }));
-  };
-
-  simulateLayer(0);
-  simulateLayer(1);
-  simulateLayer(2);
-  at(300, () => emit({ event: "postprocess", filtered: 2 }));
+  at(0, () => emit({ event: "start", totalQ }));
+  for (let q = 1; q <= totalQ; q++) {
+    const thisQ = q;
+    const errored = thisQ % 7 === 0; // 데모: 7의 배수 문항은 검토 실패로 시뮬레이션
+    const findings = errored ? [] : mockFindings(q);
+    foundTotal += findings.length;
+    at(0, () => emit({ event: "q_start", q: thisQ, worker: (thisQ - 1) % 3 }));
+    at(interval, () =>
+      emit(
+        errored
+          ? { event: "q_done", q: thisQ, hasError: false, findings: [], error: "검토 실패(데모)" }
+          : { event: "q_done", q: thisQ, hasError: findings.length > 0, findings }
+      )
+    );
+  }
   at(500, () =>
     emit({ event: "done", totalFound: foundTotal, elapsed: cursor / 1000 })
   );

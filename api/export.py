@@ -18,35 +18,17 @@ from typing import Any
 
 from . import db
 
-# 유형 한글명 — web/lib/constants.ts ANOMALY_TYPES 미러. 한쪽을 바꾸면 함께 맞출 것.
-ANOMALY_LABELS: dict[str, str] = {
-    "A01": "보기 중복", "A02": "오자", "A03": "보기개수 미달",
-    "A04": "맞춤법 오류", "A05": "영문 오타", "A06": "띄어쓰기 오류",
-    "A07": "특수기호 누락", "A08": "매끄럽지 못한 문장", "A09": "법령명 오류",
-    "A10": "오타·보기 누락", "A11": "낙서형 1", "A12": "낙서형 2",
-    "A13": "문항번호 중복", "A14": "정답 노출", "A15": "보기 없음",
-    "A16": "탈자", "A17": "지문 원문자 탈자", "A18": "문장 전체 생략",
-    "A19": "특수기호 누락(지문)", "A20": "법조항 오류", "A21": "잘못된 단어",
-}
-
-# 위치/신뢰도 한글 — web/lib/constants.ts LOCATION_LABEL / CONFIDENCE_LABEL 미러.
-LOCATION_LABELS: dict[str, str] = {
-    "stem": "발문", "passage": "지문",
-    "choice_1": "보기 ①", "choice_2": "보기 ②",
-    "choice_3": "보기 ③", "choice_4": "보기 ④",
-}
-CONFIDENCE_LABELS: dict[str, str] = {"low": "낮음", "medium": "보통", "high": "높음"}
-
-# 검수상태 한글 — review_actions.action(없으면 미검수).
+# holistic findings 는 errorType/location/confidence 가 이미 한글이라 라벨 매핑이
+# 필요 없다 (LLM 출력 그대로). 검수상태만 review_actions.action → 한글로 변환.
 REVIEW_STATUS_LABELS: dict[str | None, str] = {
     "confirmed": "확인", "rejected": "반려", "pending": "보류", None: "미검수",
 }
 
 # 컬럼 정의 (Excel/PDF 공통). (헤더, 너비비율).
 _COLUMNS: list[tuple[str, float]] = [
-    ("문항", 0.5), ("유형코드", 0.7), ("유형명", 1.3), ("위치", 0.8),
-    ("원문", 1.5), ("의심", 1.5), ("제안", 1.5),
-    ("신뢰도", 0.6), ("검수상태", 0.7), ("검수 코멘트", 1.7),
+    ("문항", 0.45), ("유형", 0.9), ("위치", 0.9),
+    ("인용", 1.6), ("사유", 1.8), ("제안", 1.4),
+    ("신뢰도", 0.6), ("검수상태", 0.7), ("검수 코멘트", 1.6),
 ]
 
 
@@ -65,28 +47,22 @@ def _select(session_id: str) -> tuple[list[dict], bool]:
 
 
 def _rows(session_id: str) -> list[list[str]]:
-    """대상 항목 → 표 행(문자열 리스트). issues 가 여러 개면 행으로 펼친다."""
+    """대상 finding → 표 행(문자열 리스트). finding 1건 = 행 1개."""
     selected, _ = _select(session_id)
     out: list[list[str]] = []
     for f in selected:
-        code = f["typeCode"]
-        label = ANOMALY_LABELS.get(code, code)
-        conf = CONFIDENCE_LABELS.get(f["confidence"] or "", "")
         status = REVIEW_STATUS_LABELS.get(f.get("action"), "미검수")
-        comment = f.get("comment") or ""
-        issues = f["issues"] or []
-        if not issues:
-            out.append([str(f["qNumber"]), code, label, "", "", "", "", conf, status, comment])
-            continue
-        for iss in issues:
-            loc = LOCATION_LABELS.get(iss.get("location", ""), iss.get("location", ""))
-            out.append([
-                str(f["qNumber"]), code, label, loc,
-                iss.get("original", "") or "",
-                iss.get("suspected", "") or "",
-                iss.get("suggested", "") or "",
-                conf, status, comment,
-            ])
+        out.append([
+            str(f["qNumber"]),
+            f.get("errorType", "") or "",
+            f.get("location", "") or "",
+            f.get("quote", "") or "",
+            f.get("reason", "") or "",
+            f.get("suggestion", "") or "",
+            f.get("confidence", "") or "",
+            status,
+            f.get("comment") or "",
+        ])
     return out
 
 

@@ -1,8 +1,8 @@
 """
 parsing.py — 입력 파일을 '## N.' 형식 Markdown으로 변환하는 어댑터.
 
-CLI/API 업로드 단계가 사용하는 단일 진입점. 실제 변환 로직은 재구현하지 않고
-hwp_parser / code_checker의 기존 함수를 import 해 재사용한다.
+CLI/API 업로드 단계가 사용하는 단일 진입점. HWP 변환은 hwp_parser 를 재사용하고,
+'## N.' 문항 분리는 이 모듈의 extract_all_questions() 로 self-contained 처리한다.
 
 지원 포맷:
   - .hwp / .hwpx : hwp_parser.parse_hwp_to_blocks → blocks_to_exam_md
@@ -12,13 +12,21 @@ hwp_parser / code_checker의 기존 함수를 import 해 재사용한다.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 # core 패키지 로드 시 src/ 가 sys.path 에 등록되므로 평면 모듈을 그대로 import 한다.
 import core  # noqa: F401  (sys.path 셋업 트리거)
 
 from hwp_parser import parse_hwp_to_blocks, blocks_to_exam_md
-from code_checker import extract_all_questions
+
+
+def extract_all_questions(md_text: str) -> list[tuple[int, str]]:
+    """'## N.' Markdown 에서 (문항번호, 문항블록) 목록을 반환한다 (self-contained)."""
+    out: list[tuple[int, str]] = []
+    for m in re.finditer(r"(## (\d+)\.\n[\s\S]*?)(?=\n## \d+\.|$)", md_text):
+        out.append((int(m.group(2)), m.group(1).strip()))
+    return out
 
 
 def parse_to_md(file_path: str | Path) -> str:
@@ -55,7 +63,7 @@ def extract_questions_from_md(md_text: str) -> list[dict]:
     """
     '## N.' Markdown에서 문항 목록을 [{"qNumber", "mdText"}, ...] 형태로 추출한다.
 
-    code_checker.extract_all_questions()의 (번호, 블록) 튜플을 dict로 변환한다.
+    extract_all_questions()의 (번호, 블록) 튜플을 dict로 변환한다.
     API/업로드 파싱 단계가 사용한다.
 
     개행을 LF로 정규화한다: 업로드 바이트를 decode('utf-8')하면 CRLF(\\r\\n)가

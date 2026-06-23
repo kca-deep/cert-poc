@@ -1,43 +1,42 @@
 """
-pipeline.py — 3레이어 하이브리드 파이프라인 로직 (단일 소스).
+pipeline.py — holistic 단일호출 검출 파이프라인 (단일 소스).
 
-run_pipeline()은 hybrid_run.main()이 하던 것과 동일한 작업을 수행한다:
-Layer 0 (코드) → Layer 1 (그룹 LLM) → Layer 2 (per-type LLM) → 병합 → 후처리.
+★ 전면 대체: 기존 3레이어(L0 규칙 + L1 그룹LLM + L2 per-type LLM, 문항당 ~11콜)를
+  폐기하고, cert-harness 외과적 v2 검출 코어로 **문항당 holistic 1콜**을 수행한다.
+  출력은 llama.cpp native grammar(response_format=json_schema)로 강제된다.
 
-단, print 대신 ProgressEvent를 yield 한다. CLI(src/cli.py)는 이를 받아 콘솔에
-출력하고, FastAPI(api/)는 그대로 JSON 직렬화해 SSE로 스트리밍한다.
+흐름: '## N.' 문항 추출 → 문항별 holistic LLM 1콜(grammar 강제) → findings[] 정규화
+      → results.json. 레이어 분기·규칙층·후처리 F필터는 존재하지 않는다.
 
-★ 로직은 여기 한 곳에만 존재한다 (single source of truth).
-  hybrid_run.py는 cli.py를 호출하는 back-compat 얇은 shim일 뿐이다.
+run_pipeline()은 print 대신 ProgressEvent(core.events)를 yield 한다. CLI(src/cli.py)는
+이를 콘솔 라인으로 출력하고, FastAPI(api/)는 그대로 JSON 직렬화해 SSE로 스트리밍한다.
 
 주의:
   - print() / argparse / sys.exit 금지. 로직만.
-  - run_code_check()는 파일 경로를 받으므로, md_text를 임시 .md로 써서 호출한다.
-  - sanitize()의 '>' 블록쿼트 치환, max_retries 처리, slot round-robin 보존.
+  - sanitize()의 '>' 블록쿼트 치환은 gpt-oss garbage 버그 회피용으로 보존(폐쇄망
+    기본은 gemma4 llama.cpp 라 영향 없음, 다른 로컬 모델 호환을 위해 유지).
+  - OpenAI 클라이언트 max_retries=0 (내부 재시도 곱셈 방지) 보존.
 """
 
 from __future__ import annotations
 
 import json
 import re
-import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterator
 
 # core 패키지 로드 시 src/ 가 sys.path 에 등록되므로 평면 모듈을 그대로 import 한다.
 import core  # noqa: F401  (sys.path 셋업 트리거)
 
-from config import lm_config, build_config
-from code_checker import run_code_check, extract_all_questions  # noqa: F401
-from postprocess import apply_filters
+from config import build_config
 from core.events import (
     ProgressEvent,
-    layer_start,
-    q_layer0_done,
-    q_type_done,
-    layer_done,
-    postprocess,
+    Finding,
+    start,
+    q_start,
+    q_done,
     done,
     error,
 )
@@ -50,18 +49,16 @@ except ImportError:  # pragma: no cover - 런타임 의존성
 ROOT       = Path(__file__).resolve().parent.parent.parent
 PROMPT_DIR = ROOT / "prompts"
 
+# holistic 검출 코어 자산
+HOLISTIC_PROMPT = "holistic/review.md"
+HOLISTIC_SYSTEM = "holistic/system.md"
 
-# ── 레이어 정의 ───────────────────────────────────────────────
+# 출력 강제 grammar 를 지원하는 백엔드(response_format=json_schema → GBNF).
+# Ollama 는 format=schema 단일호출에서 붕괴 이력(STATUS.md)이 있어 제외 → 폴백 파서.
+_GRAMMAR_BACKENDS = {"openai"}  # llama.cpp / LM Studio 는 /models 응답으로 "openai" 로 잡힌다
 
-LAYER0_TYPES = {"A01", "A03", "A13", "A15", "A17", "A18"}
-
-LAYER1_GROUPS = [
-    {"code": "G1", "file": "hybrid/G1_typo_spelling.md",  "types": ["A04", "A05", "A06"]},
-    {"code": "G4", "file": "hybrid/G4_legal_domain.md",   "types": ["A09", "A20"]},
-    {"code": "G5", "file": "hybrid/G5_editorial.md",      "types": ["A11", "A14"]},
-]
-
-LAYER2_TYPES = ["A02", "A07", "A08", "A10", "A12", "A16", "A19", "A21"]
+# finding 필수 키 (출력 계약: _shared/output_schema.json)
+_FINDING_KEYS = ("location", "quote", "error_type", "reason", "suggestion", "confidence")
 
 
 # ── 공통 유틸 ─────────────────────────────────────────────────
@@ -94,17 +91,6 @@ def load_prompt(rel_path: str) -> str:
     return (PROMPT_DIR / rel_path).read_text(encoding="utf-8")
 
 
-def load_preamble() -> str:
-    return (PROMPT_DIR / "_shared" / "system_preamble.md").read_text(encoding="utf-8")
-
-
-def load_pertype_prompt(code: str) -> str:
-    matches = list((PROMPT_DIR / "per-type").glob(f"{code}_*.md"))
-    if not matches:
-        raise FileNotFoundError(f"per-type 프롬프트 없음: {code}_*.md")
-    return matches[0].read_text(encoding="utf-8")
-
-
 # ── LLM 호출 ──────────────────────────────────────────────────
 
 class LMCallError(Exception):
@@ -117,22 +103,28 @@ def call_lm_studio(messages: list[dict], cfg: dict, slot_id: int = -1) -> dict:
     if OpenAI is None:
         raise LMCallError("openai 패키지가 필요합니다: pip install openai")
     import httpx
-    # connect 와 read 타임아웃을 분리한다. 단일 timeout(120s)이면 접속 불가 호스트가
-    # connect 에서 120s 를 통째로 대기해 파이프라인이 사실상 멈춘다(분석중 고착의 원인).
-    # connect 를 짧게(기본 5s) 잡아 unreachable 을 빠르게 LMCallError 로 떨군다.
+    # connect 와 read 타임아웃을 분리한다. 단일 timeout 이면 접속 불가 호스트가
+    # connect 에서 통째로 대기해 파이프라인이 멈춘다(분석중 고착의 원인).
     timeout = httpx.Timeout(cfg["timeout"], connect=cfg.get("connect_timeout", 5))
     client = OpenAI(base_url=cfg["base_url"], api_key="lm-studio",
                     timeout=timeout, max_retries=0)
     extra: dict = {}
-    # cache_prompt/slot_id 는 llama.cpp 전용 확장이다. Ollama 는 이를 모르고
-    # (clova 처럼) 보내면 안 되므로 backend != "ollama" 일 때만 전송한다.
-    if cfg.get("backend") != "ollama":
+    backend = cfg.get("backend", "openai")
+    # cache_prompt/slot_id 는 llama.cpp 전용 확장. Ollama 는 모르므로 비-ollama 만 전송.
+    if backend != "ollama":
         extra["cache_prompt"] = cfg.get("cache_prompt", False)
         if slot_id >= 0:
             extra["slot_id"] = slot_id
-    # reasoning_effort 는 gpt-oss 계열만 지원한다. Ollama 등 다른 서버는 이 값을
-    # "thinking 활성화"로 해석해, exaone 처럼 thinking 미지원 모델에 보내면
-    # 400("does not support thinking")으로 거부한다 → gpt-oss 일 때만 전송한다.
+    # holistic 출력 강제: response_format=json_schema 를 extra_body 로 요청 본문 최상위에
+    # 합류시킨다(서버가 GBNF 로 변환·디코딩 마스킹). OpenAI SDK 타입검증을 우회하려고
+    # 알려진 필드 대신 extra_body 경로를 쓴다. grammar 미지원 백엔드는 생략(폴백 파서).
+    schema = cfg.get("response_schema")
+    if schema and backend in _GRAMMAR_BACKENDS:
+        extra["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "review", "schema": schema},
+        }
+    # reasoning_effort 는 gpt-oss 계열만 지원. 다른 모델에 보내면 400 → gpt-oss 일 때만.
     if "gpt-oss" in (cfg.get("model") or "").lower():
         extra["reasoning_effort"] = cfg["reasoning_effort"]
     resp = client.chat.completions.create(
@@ -145,39 +137,8 @@ def call_lm_studio(messages: list[dict], cfg: dict, slot_id: int = -1) -> dict:
     return _extract_json(raw, finish=finish)
 
 
-def call_clova(messages: list[dict], cfg: dict) -> dict:
-    """
-    Naver HyperCLOVA X(CLOVA Studio) 호출. CLOVA Studio 는 OpenAI 호환이라 동일한
-    OpenAI 클라이언트를 쓰되, base_url 과 'nv-' Bearer 키가 다르고 llama.cpp 전용
-    extra_body(reasoning_effort/cache_prompt/slot_id)는 보내지 않는다.
-    """
-    if OpenAI is None:
-        raise LMCallError("openai 패키지가 필요합니다: pip install openai")
-    import httpx
-
-    api_key = cfg.get("clova_api_key")
-    if not api_key:
-        raise LMCallError("CLOVASTUDIO_API_KEY 가 설정되지 않았습니다.")
-    timeout = httpx.Timeout(cfg["timeout"], connect=cfg.get("connect_timeout", 5))
-    client = OpenAI(base_url=cfg["clova_base_url"], api_key=api_key,
-                    timeout=timeout, max_retries=0)
-    resp = client.chat.completions.create(
-        model=cfg["clova_model"], messages=messages,
-        temperature=cfg["temperature"], max_tokens=cfg["clova_max_tokens"],
-    )
-    raw = (resp.choices[0].message.content or "").strip()
-    finish = resp.choices[0].finish_reason
-    return _extract_json(raw, finish=finish)
-
-
 def _loads_first_json(s: str) -> dict | None:
-    """
-    문자열에서 첫 JSON 값만 파싱한다 (뒤따르는 여분 데이터는 무시).
-
-    Claude(Haiku)가 유효한 JSON 뒤에 설명/중복 객체를 덧붙여 반환하면
-    json.loads 는 'Extra data' 로 실패한다. raw_decode 는 첫 값만 디코딩하고
-    이후 텍스트를 버리므로 이 패턴을 구제한다. 파싱 불가면 None.
-    """
+    """문자열에서 첫 JSON 값만 파싱한다 (뒤따르는 여분 데이터는 무시)."""
     starts = [i for i in (s.find("{"), s.find("[")) if i != -1]
     if not starts:
         return None
@@ -189,7 +150,7 @@ def _loads_first_json(s: str) -> dict | None:
 
 
 def _extract_json(raw: str, finish: str = "") -> dict:
-    """LLM 응답 텍스트에서 JSON 본문을 추출/파싱한다 (local/claude 공용)."""
+    """LLM 응답 텍스트에서 JSON 본문을 추출/파싱한다 (grammar 미지원 공급자 폴백 포함)."""
     blocks = re.findall(r"```(?:json)?\s*([\s\S]+?)```", raw)
     candidates = blocks if blocks else [raw]
     last_error = None
@@ -206,7 +167,6 @@ def _extract_json(raw: str, finish: str = "") -> dict:
     except json.JSONDecodeError as e:
         last_error = e
 
-    # 마지막 관용 파싱: 첫 JSON 값만 디코딩 (Haiku 의 'Extra data' 패턴 구제).
     for candidate in (*reversed(candidates), clean, raw):
         obj = _loads_first_json(candidate)
         if obj is not None:
@@ -218,7 +178,7 @@ def _extract_json(raw: str, finish: str = "") -> dict:
 
 
 def call_claude(messages: list[dict], cfg: dict) -> dict:
-    """Anthropic Claude(Haiku) 호출. system/user 메시지를 분리해 전송한다."""
+    """Anthropic Claude(Haiku) 호출 (외부망 전용, grammar 미지원 → 폴백 파서 의존)."""
     try:
         import anthropic
     except ImportError:  # pragma: no cover - 런타임 의존성
@@ -247,70 +207,51 @@ def call_claude(messages: list[dict], cfg: dict) -> dict:
     return _extract_json(raw, finish=getattr(resp, "stop_reason", "") or "")
 
 
-_ISSUE_REQUIRED = ("location", "original", "suspected")
+# ── findings 정규화 ───────────────────────────────────────────
+
+def _str(v: object) -> str:
+    return v if isinstance(v, str) else ("" if v is None else str(v))
 
 
-def _normalize_issue(raw: object) -> dict | None:
+def _normalize_findings(obj: dict, q: int) -> list[Finding]:
     """
-    LLM issue 1건을 출력 계약(output_schema)에 맞춰 교정한다(저장 전 방어).
+    holistic LLM 응답(dict)의 findings[] 를 출력 계약(camelCase)에 맞춰 교정한다.
 
-    - extra: dict 가 아니면(문자열 등) {'note': str} 로 감싸고, 빈값은 None.
-      (읽기 단계 pydantic Issue.extra: dict|None 거부로 GET 500 나던 결함 차단)
-    - location/original/suspected: 비-str 이면 str() 강제.
-    - 필수 3키가 없으면 드롭(None). 미지의 보조키는 보존(차수 일반화).
+    - error_type → errorType 로 카멜화, 누락/비-str 키는 str 강제.
+    - id = "<q>-<index>" (세션 내 안정 식별자, 검수 finding 단위 PK).
+    - location/quote 가 모두 비면 드롭(빈 finding 방어). grammar 강제 시엔 거의 없음.
     """
-    if not isinstance(raw, dict):
-        return None
-    out = dict(raw)
-    if "extra" in out:
-        ex = out["extra"]
-        if ex is None or isinstance(ex, dict):
-            out["extra"] = ex
-        else:
-            s = str(ex).strip()
-            out["extra"] = {"note": s} if s else None
-    for k in _ISSUE_REQUIRED:
-        if k in out and not isinstance(out[k], str):
-            out[k] = str(out[k])
-    return out if all(k in out for k in _ISSUE_REQUIRED) else None
-
-
-def _normalize_issues(issues: object) -> list[dict]:
-    """issues 배열을 정규화한다. list 가 아니면 빈 배열, 깨진 issue 는 제거."""
-    if not isinstance(issues, list):
+    raw = obj.get("findings") if isinstance(obj, dict) else None
+    if not isinstance(raw, list):
         return []
-    return [n for n in (_normalize_issue(i) for i in issues) if n is not None]
+    out: list[Finding] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        f: Finding = {
+            "id":         f"{q}-{len(out)}",
+            "location":   _str(item.get("location")),
+            "quote":      _str(item.get("quote")),
+            "errorType":  _str(item.get("error_type") or item.get("errorType") or "기타"),
+            "reason":     _str(item.get("reason")),
+            "suggestion": _str(item.get("suggestion")),
+            "confidence": _str(item.get("confidence") or "보통"),
+        }
+        if not f["location"] and not f["quote"] and not f["reason"]:
+            continue
+        out.append(f)
+    return out
 
 
-def _normalize_result(obj: dict) -> dict:
-    """
-    LLM 응답 dict 의 issues 를 정규화한다. Layer2(top-level issues)와
-    Layer1(results[].issues) 두 형태를 모두 처리한다(local/claude 공통).
-    """
-    if not isinstance(obj, dict) or "_error" in obj:
-        return obj
-    if "issues" in obj:
-        obj["issues"] = _normalize_issues(obj["issues"])
-    subs = obj.get("results")
-    if isinstance(subs, list):
-        for sub in subs:
-            if isinstance(sub, dict) and "issues" in sub:
-                sub["issues"] = _normalize_issues(sub["issues"])
-    return obj
-
-
-def call_with_retry(messages: list[dict], label: str, cfg: dict,
-                    slot_id: int = -1) -> dict | None:
+def call_with_retry(messages: list[dict], cfg: dict, slot_id: int = -1) -> dict | None:
     max_retries = cfg["max_retries"]
     retry_delay = cfg["retry_delay"]
     provider = cfg.get("provider")
     for attempt in range(max_retries + 1):
         try:
             if provider == "claude":
-                return _normalize_result(call_claude(messages, cfg))
-            if provider == "clovax":
-                return _normalize_result(call_clova(messages, cfg))
-            return _normalize_result(call_lm_studio(messages, cfg, slot_id=slot_id))
+                return call_claude(messages, cfg)
+            return call_lm_studio(messages, cfg, slot_id=slot_id)
         except LMCallError as e:
             if attempt < max_retries:
                 time.sleep(retry_delay)
@@ -327,13 +268,11 @@ def call_with_retry(messages: list[dict], label: str, cfg: dict,
 
 def preflight_local(cfg: dict) -> str | None:
     """
-    로컬 LLM 후보(8080/8081 등)를 자동탐지하고 cfg 에 채택 백엔드를 주입한다.
+    로컬 LLM 후보를 자동탐지하고 cfg 에 채택 백엔드/모델을 주입한다.
 
-    base_url_candidates 를 순서대로 프로브해 첫 healthy 서버의 base_url 과 실제
-    로딩 모델을 cfg["base_url"]/cfg["model"] 에 덮어쓰고 None 을 반환한다. 전부
-    접속 불가면 사람이 읽을 에러 메시지를 반환한다. 이 검사로 unreachable 한
-    서버에서 분석을 시작했다가 매 LLM 호출이 connect 타임아웃까지 블로킹돼
-    '분석중'에 고착되는 것을 막는다(시작 즉시 error 처리).
+    base_url_candidates 를 순서대로 프로브해 첫 healthy 서버의 base_url·모델을
+    cfg 에 덮어쓰고 None 을 반환한다. 전부 접속 불가면 에러 메시지를 반환한다.
+    이 검사로 unreachable 서버에서 분석을 시작해 '분석중'에 고착되는 것을 막는다.
     """
     from config import probe_local_backends
 
@@ -342,7 +281,7 @@ def preflight_local(cfg: dict) -> str | None:
     if resolved is None:
         return (
             f"로컬 LLM 서버에 접속할 수 없습니다 ({', '.join(candidates)}). "
-            f"gpt-oss(8080)/exaone(8081) 서버 실행 여부를 확인하세요."
+            f"llama.cpp(8080) 서버 실행 여부를 확인하세요."
         )
     cfg["base_url"] = resolved["base_url"]
     cfg["backend"] = resolved.get("backend", "openai")
@@ -357,203 +296,28 @@ def _save(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _already_done(result_dir: Path, label: str) -> bool:
-    return (result_dir / f"{label}.json").exists() or \
-           (result_dir / f"{label}_ERROR.json").exists()
+# ── 문항 1개 holistic 처리 ────────────────────────────────────
+
+def _build_messages(md_text: str, q: int, system: str, prompt: str) -> list[dict]:
+    qblock  = extract_question(md_text, q)
+    content = sanitize(prompt).replace("{{QUESTION_BLOCK}}", sanitize(qblock))
+    return [{"role": "system", "content": system},
+            {"role": "user",   "content": content}]
 
 
-# ── Layer 0 실행 (코드, LLM 불필요) ───────────────────────────
-
-def _run_layer0(md_path: Path, result_dir: Path, q_filter: int | None,
-                reset: bool) -> Iterator[ProgressEvent]:
-    layer_dir = result_dir / "layer0"
-    layer_dir.mkdir(parents=True, exist_ok=True)
-
-    if reset:
-        pattern = f"Q{q_filter:02d}_*.json" if q_filter else "*.json"
-        for f in layer_dir.glob(pattern):
-            f.unlink()
-
-    results = run_code_check(md_path, q_filter=q_filter, output_dir=layer_dir)
-
-    # 문항별로 묶어서 q_layer0_done 이벤트 생성
-    by_q: dict[int, dict[str, bool]] = {}
-    for r in results:
-        q = r.get("question_number")
-        t = r.get("type_code")
-        if q is not None and t:
-            by_q.setdefault(int(q), {})[t] = bool(r.get("found"))
-
-    for q in sorted(by_q):
-        yield q_layer0_done(q, by_q[q])
-
-    found = sum(1 for r in results if r.get("found"))
-    yield layer_done(0, found)
-
-
-# ── Layer 1 실행 (그룹 LLM) ───────────────────────────────────
-
-def _run_layer1(md_text: str, questions: list[int], result_dir: Path,
-                q_filter: int | None, reset: bool, preamble: str,
-                cfg: dict) -> Iterator[ProgressEvent]:
-    layer_dir = result_dir / "layer1"
-    layer_dir.mkdir(parents=True, exist_ok=True)
-
-    if reset and q_filter:
-        for f in layer_dir.glob(f"Q{q_filter:02d}_*.json"):
-            f.unlink()
-
-    pairs = [(q, g) for q in questions for g in LAYER1_GROUPS
-             if q_filter is None or q == q_filter]
-
-    found_total = 0
-    n_slots = cfg.get("n_slots", 4)
-
-    for i, (q_num, grp) in enumerate(pairs, 1):
-        label = f"Q{q_num:02d}_{grp['code']}"
-        if not reset and _already_done(layer_dir, label):
-            # 스킵: 기존 결과에서 found 유형을 읽어 이벤트 재생산
-            existing = layer_dir / f"{label}.json"
-            if existing.exists():
-                r = json.loads(existing.read_text(encoding="utf-8"))
-                for sub in r.get("results", []):
-                    t = sub.get("type_code")
-                    if t:
-                        f = bool(sub.get("found"))
-                        if f:
-                            found_total += 1
-                        yield q_type_done(1, q_num, t, f, sub.get("confidence"))
-            continue
-
-        try:
-            prompt  = load_prompt(grp["file"])
-            qblock  = extract_question(md_text, q_num)
-            content = sanitize(prompt).replace("{{QUESTION_BLOCK}}", sanitize(qblock))
-            msgs    = [{"role": "system", "content": preamble},
-                       {"role": "user",   "content": content}]
-        except Exception as e:
-            _save(layer_dir / f"{label}_ERROR.json",
-                  {"question_number": q_num, "group_code": grp["code"], "_error": str(e)})
-            continue
-
-        slot_id = (i - 1) % n_slots if cfg.get("slot_round_robin", False) else -1
-        result  = call_with_retry(msgs, label, cfg, slot_id=slot_id)
-
-        if result and "_error" in result:
-            _save(layer_dir / f"{label}_ERROR.json",
-                  {"question_number": q_num, "group_code": grp["code"],
-                   "_error": result["_error"], "_raw": result.get("_raw", "")})
-        else:
-            _save(layer_dir / f"{label}.json", result)
-            for sub in result.get("results", []):
-                t = sub.get("type_code")
-                if t:
-                    f = bool(sub.get("found"))
-                    if f:
-                        found_total += 1
-                    yield q_type_done(1, q_num, t, f, sub.get("confidence"))
-
-    yield layer_done(1, found_total)
-
-
-# ── Layer 2 실행 (per-type LLM) ───────────────────────────────
-
-def _run_layer2(md_text: str, questions: list[int], result_dir: Path,
-                q_filter: int | None, reset: bool, preamble: str,
-                cfg: dict) -> Iterator[ProgressEvent]:
-    layer_dir = result_dir / "layer2"
-    layer_dir.mkdir(parents=True, exist_ok=True)
-
-    if reset and q_filter:
-        for f in layer_dir.glob(f"Q{q_filter:02d}_*.json"):
-            f.unlink()
-
-    pairs = [(q, t) for q in questions for t in LAYER2_TYPES
-             if q_filter is None or q == q_filter]
-
-    found_total = 0
-    n_slots = cfg.get("n_slots", 4)
-
-    for i, (q_num, type_code) in enumerate(pairs, 1):
-        label = f"Q{q_num:02d}_{type_code}"
-        if not reset and _already_done(layer_dir, label):
-            existing = layer_dir / f"{label}.json"
-            if existing.exists():
-                r = json.loads(existing.read_text(encoding="utf-8"))
-                f = bool(r.get("found"))
-                if f:
-                    found_total += 1
-                yield q_type_done(2, q_num, type_code, f, r.get("confidence"))
-            continue
-
-        try:
-            prompt  = load_pertype_prompt(type_code)
-            qblock  = extract_question(md_text, q_num)
-            content = sanitize(prompt).replace("{{QUESTION_BLOCK}}", sanitize(qblock))
-            msgs    = [{"role": "system", "content": preamble},
-                       {"role": "user",   "content": content}]
-        except Exception as e:
-            _save(layer_dir / f"{label}_ERROR.json",
-                  {"question_number": q_num, "type_code": type_code, "_error": str(e)})
-            continue
-
-        slot_id = (i - 1) % n_slots if cfg.get("slot_round_robin", False) else -1
-        result  = call_with_retry(msgs, label, cfg, slot_id=slot_id)
-
-        if result and "_error" in result:
-            _save(layer_dir / f"{label}_ERROR.json",
-                  {"question_number": q_num, "type_code": type_code,
-                   "_error": result["_error"], "_raw": result.get("_raw", "")})
-        else:
-            _save(layer_dir / f"{label}.json", result)
-            f = bool(result.get("found", False))
-            if f:
-                found_total += 1
-            yield q_type_done(2, q_num, type_code, f, result.get("confidence"))
-
-    yield layer_done(2, found_total)
-
-
-# ── 결과 병합 ─────────────────────────────────────────────────
-
-def _merge(result_dir: Path, questions: list[int]) -> dict:
-    """layer0/1/2 결과 JSON을 {q: {type_code: result}} 로 병합하고 merged.json 저장."""
-    merged: dict[int, dict[str, dict]] = {int(q): {} for q in questions}
-
-    # Layer 0
-    for f in (result_dir / "layer0").glob("Q*_A*.json"):
-        if "_ERROR" in f.name:
-            continue
-        r = json.loads(f.read_text(encoding="utf-8"))
-        q, t = r.get("question_number"), r.get("type_code")
-        if q and t:
-            merged.setdefault(int(q), {})[t] = r
-
-    # Layer 1 (그룹 → 개별 유형으로 펼치기)
-    for f in (result_dir / "layer1").glob("Q*_G*.json"):
-        if "_ERROR" in f.name:
-            continue
-        r = json.loads(f.read_text(encoding="utf-8"))
-        q = r.get("question_number")
-        for sub in r.get("results", []):
-            t = sub.get("type_code")
-            if q and t:
-                merged.setdefault(int(q), {})[t] = sub
-
-    # Layer 2
-    for f in (result_dir / "layer2").glob("Q*_A*.json"):
-        if "_ERROR" in f.name:
-            continue
-        r = json.loads(f.read_text(encoding="utf-8"))
-        q, t = r.get("question_number"), r.get("type_code")
-        if q and t:
-            merged.setdefault(int(q), {})[t] = r
-
-    merged_out = {str(q): v for q, v in sorted(merged.items())}
-    (result_dir / "merged.json").write_text(
-        json.dumps(merged_out, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    return merged_out
+def _process_question(md_text: str, q: int, system: str, prompt: str, cfg: dict,
+                      slot_id: int) -> tuple[int, list[Finding], dict]:
+    """문항 1개를 holistic 호출하고 (q, findings, raw_result) 를 반환한다."""
+    try:
+        msgs = _build_messages(md_text, q, system, prompt)
+    except Exception as e:  # noqa: BLE001 - 문항 추출 실패도 q 단위로 격리
+        return q, [], {"_error": str(e)}
+    result = call_with_retry(msgs, cfg, slot_id=slot_id) or {}
+    if "_error" in result:
+        return q, [], result
+    findings = _normalize_findings(result, q)
+    return q, findings, {"has_error": bool(result.get("has_error", bool(findings))),
+                         "findings": findings}
 
 
 # ── 메인 제너레이터 ───────────────────────────────────────────
@@ -562,24 +326,23 @@ def run_pipeline(md_text: str, result_dir: Path, q_filter: int | None = None,
                  reset: bool = False,
                  provider: str | None = None) -> Iterator[ProgressEvent]:
     """
-    3레이어 하이브리드 파이프라인을 실행하며 ProgressEvent를 yield 한다.
+    holistic 파이프라인을 실행하며 ProgressEvent 를 yield 한다.
 
     Args:
         md_text:    '## N.' 형식 시험지 Markdown 전체 텍스트.
-        result_dir: 결과 저장 디렉터리 (layer0/layer1/layer2/merged*.json).
+        result_dir: 결과 저장 디렉터리 (holistic/Q*.json, results.json).
         q_filter:   특정 문항 번호만 처리 (None이면 전체).
         reset:      기존 결과를 지우고 다시 실행.
+        provider:   LLM 공급자 (미지정 시 .env LLM_PROVIDER).
 
     Yields:
-        ProgressEvent (core.events): layer_start / q_layer0_done / q_type_done /
-        layer_done / postprocess / done / error.
+        ProgressEvent (core.events): start / q_done / done / error.
     """
     t_start = time.time()
     try:
         cfg = build_config(provider)
 
         # 사전 헬스체크: 로컬 LLM 이 닿지 않으면 분석을 시작하지 않고 즉시 error.
-        # (claude/clovax 는 외부 API 라 여기서 localhost 프로브를 하지 않는다.)
         if cfg.get("provider") == "local":
             msg = preflight_local(cfg)
             if msg:
@@ -587,56 +350,100 @@ def run_pipeline(md_text: str, result_dir: Path, q_filter: int | None = None,
                 return
 
         result_dir = Path(result_dir)
-        result_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = result_dir / "holistic"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        questions = extract_all_question_numbers(md_text)
-        preamble  = load_preamble()
+        all_questions = extract_all_question_numbers(md_text)
+        questions = [q_filter] if q_filter is not None else all_questions
+        system = load_prompt(HOLISTIC_SYSTEM)
+        prompt = load_prompt(HOLISTIC_PROMPT)
 
-        # run_code_check()는 파일 경로를 받으므로 md_text를 임시 파일로 기록한다.
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", encoding="utf-8", delete=False
-        )
-        try:
-            tmp.write(md_text)
-            tmp.close()
-            md_path = Path(tmp.name)
+        yield start(len(questions))
 
-            # ── Layer 0 ──
-            total_q = len(questions) if q_filter is None else 1
-            yield layer_start(0, total_q)
-            yield from _run_layer0(md_path, result_dir, q_filter, reset)
+        n_slots = cfg.get("n_slots", 4)
+        # local 에서만 병렬; claude 는 레이트리밋 고려해 직렬 유지.
+        max_workers = cfg.get("parallel_workers", 1) if cfg.get("provider") == "local" else 1
 
-            # ── Layer 1 ──
-            yield layer_start(1, total_q)
-            yield from _run_layer1(md_text, questions, result_dir,
-                                   q_filter, reset, preamble, cfg)
-
-            # ── Layer 2 ──
-            yield layer_start(2, total_q)
-            yield from _run_layer2(md_text, questions, result_dir,
-                                   q_filter, reset, preamble, cfg)
-        finally:
-            try:
-                md_path.unlink()
-            except OSError:
-                pass
-
-        # ── 병합 ──
-        merged = _merge(result_dir, questions)
-
-        # ── 후처리 필터 ──
-        filtered, log = apply_filters(merged)
-        (result_dir / "merged_filtered.json").write_text(
-            json.dumps(filtered, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        yield postprocess(len(log))
-
-        # ── 최종 집계 (필터 적용 후 found 건수) ──
+        results: dict[str, dict] = {}
         total_found = 0
-        for q_results in filtered.values():
-            for r in q_results.values():
-                if r.get("found") is True:
-                    total_found += 1
+
+        # 캐시 재사용: reset 아니고 기존 결과가 있으면 즉시 흘린다.
+        pending: list[int] = []
+        for i, q in enumerate(questions):
+            cache = out_dir / f"Q{q:02d}.json"
+            if not reset and cache.exists():
+                try:
+                    r = json.loads(cache.read_text(encoding="utf-8"))
+                    findings = r.get("findings", [])
+                    results[str(q)] = r
+                    total_found += len(findings)
+                    yield q_done(q, findings, bool(r.get("has_error", bool(findings))))
+                    continue
+                except Exception:  # noqa: BLE001 - 깨진 캐시는 재처리
+                    pass
+            pending.append(q)
+
+        if pending:
+            # 워커 스레드는 generator 에서 직접 yield 할 수 없으므로, 스레드 안전 큐로
+            # 이벤트를 main 스레드(generator)에 전달한다. 워커는 문항을 집어드는 즉시
+            # ("start") 를 넣어 active 표시를 즉발시키고(=시작 직후 멈춤 현상 제거),
+            # 끝나면 ("done", 결과) 를 넣는다. 동시 실행 수는 max_workers(=서버 슬롯) 만큼.
+            import queue as _queue
+            evq: _queue.Queue = _queue.Queue()
+
+            # 논리 레인 풀: 동시에 도는 워커를 0..max_workers-1 로 식별(web 에서 agentA/B/C).
+            # 풀 크기 == 스레드 수라 get() 데드락 없음(스레드당 레인 1개만 보유).
+            lane_pool: _queue.Queue = _queue.Queue()
+            for _lane in range(max(1, max_workers)):
+                lane_pool.put(_lane)
+
+            def _job(qn: int) -> None:
+                lane = lane_pool.get()  # 워커가 작업을 집어드는 시점에 레인 점유
+                evq.put(("start", qn, (lane, None)))
+                slot = lane if cfg.get("slot_round_robin", False) else -1
+                try:
+                    res = _process_question(md_text, qn, system, prompt, cfg, slot)
+                except Exception as e:  # noqa: BLE001 - 어떤 실패든 done 으로 격리(행 방지)
+                    res = (qn, [], {"_error": str(e)})
+                evq.put(("done", qn, res))
+                # ★레인은 done 을 emit 한 "뒤"에 반납 → 다음 워커의 q_start 가 항상
+                #   이 q_done 뒤에 오게 보장(같은 레인을 두 문항이 동시 점유하는 프레임 차단).
+                lane_pool.put(lane)
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for q in pending:
+                    executor.submit(_job, q)
+
+                remaining = len(pending)
+                while remaining > 0:
+                    kind, qn, payload = evq.get()
+                    if kind == "start":
+                        lane, _ = payload
+                        yield q_start(qn, worker=lane)
+                        continue
+                    remaining -= 1
+                    q, findings, raw = payload
+                    if "_error" in raw:
+                        _save(out_dir / f"Q{q:02d}_ERROR.json",
+                              {"question_number": q, "_error": raw["_error"],
+                               "_raw": raw.get("_raw", "")})
+                        yield q_done(q, [], False, error=raw.get("_error") or "검토 실패")
+                        continue
+                    record = {"question_number": q,
+                              "has_error": raw["has_error"],
+                              "findings": findings}
+                    _save(out_dir / f"Q{q:02d}.json", record)
+                    results[str(q)] = record
+                    total_found += len(findings)
+                    yield q_done(q, findings, raw["has_error"])
+
+        # 집계 결과 저장 (검수/내보내기용 단일 산출물)
+        merged = {str(q): results.get(str(q), {"question_number": q,
+                                               "has_error": False, "findings": []})
+                  for q in sorted(questions)}
+        (result_dir / "results.json").write_text(
+            json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
         yield done(total_found, round(time.time() - t_start, 1))
 

@@ -11,7 +11,7 @@
 #
 # Usage:
 #   ./run-app.sh                       # start both servers (Ctrl+C stops both)
-#   ./run-app.sh --install             # install deps first
+#   ./run-app.sh --install             # create .venv + install deps first
 #   ./run-app.sh --api-port 8001 --web-port 3001
 #   ./run-app.sh --no-reload           # disable uvicorn auto-reload
 #
@@ -77,16 +77,59 @@ if ! command -v npm >/dev/null 2>&1; then
     exit 1
 fi
 
+VENV_DIR="$ROOT/.venv"
+VENV_PY="$VENV_DIR/bin/python"
+
+ensure_venv() {
+    if [[ -x "$VENV_PY" ]]; then
+        return
+    fi
+    echo "${YELLOW}[setup] python -m venv .venv${RESET}"
+    "$PYTHON" -m venv "$VENV_DIR"
+}
+
 # -- Install dependencies (--install) --------------------------------
 if [[ "$INSTALL" -eq 1 ]]; then
+    ensure_venv
     echo "${YELLOW}[install] pip install -r requirements.txt${RESET}"
-    "$PYTHON" -m pip install -r "$ROOT/requirements.txt"
+    "$VENV_PY" -m pip install -r "$ROOT/requirements.txt"
     if [[ -f "$ROOT/api/requirements.txt" ]]; then
         echo "${YELLOW}[install] pip install -r api/requirements.txt${RESET}"
-        "$PYTHON" -m pip install -r "$ROOT/api/requirements.txt"
+        "$VENV_PY" -m pip install -r "$ROOT/api/requirements.txt"
     fi
     echo "${YELLOW}[install] npm install (web)${RESET}"
     ( cd "$WEB_DIR" && npm install )
+fi
+
+if [[ -x "$VENV_PY" ]]; then
+    PYTHON="$VENV_PY"
+fi
+
+require_python_module() {
+    local module="$1"
+    local install_hint="$2"
+    if ! "$PYTHON" -c "import ${module}" >/dev/null 2>&1; then
+        echo "${RED}[error] Python module '${module}' is missing in: $PYTHON${RESET}" >&2
+        echo "        Run: ./run-app.sh --install" >&2
+        echo "        Missing package group: $install_hint" >&2
+        exit 1
+    fi
+}
+
+require_python_module "uvicorn" "api/requirements.txt"
+
+if ! ( cd "$ROOT" && "$PYTHON" -c "import api.main" ) >/dev/null 2>&1; then
+    echo "${RED}[error] FastAPI app cannot be imported with: $PYTHON${RESET}" >&2
+    echo "        Run: ./run-app.sh --install" >&2
+    echo "        If it still fails, run this for the detailed error:" >&2
+    echo "        cd \"$ROOT\" && \"$PYTHON\" -c 'import api.main'" >&2
+    exit 1
+fi
+
+if [[ ! -x "$WEB_DIR/node_modules/.bin/next" ]]; then
+    echo "${RED}[error] Next.js dependencies are missing in web/node_modules.${RESET}" >&2
+    echo "        Run: ./run-app.sh --install" >&2
+    exit 1
 fi
 
 # -- Port-in-use check (warning only) --------------------------------
@@ -112,7 +155,11 @@ echo ""
 
 # -- Launch both servers; Ctrl+C stops both --------------------------
 PIDS=()
+CLEANED=0
 cleanup() {
+    # Guard against double-invocation (e.g. INT trap then EXIT trap).
+    [[ "$CLEANED" -eq 1 ]] && return 0
+    CLEANED=1
     echo ""
     echo "${CYAN}Stopping servers...${RESET}"
     for pid in "${PIDS[@]}"; do
@@ -120,7 +167,10 @@ cleanup() {
     done
     wait 2>/dev/null || true
 }
-trap cleanup INT TERM EXIT
+# Single cleanup path: INT/TERM just exit, the EXIT trap does the teardown once.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 (
     cd "$ROOT"
@@ -139,5 +189,24 @@ echo "  - API : http://localhost:$API_PORT  (health: /health, docs: /docs)"
 echo "  - WEB : http://localhost:$WEB_PORT  (-> /sessions)"
 echo "${GRAY}Press Ctrl+C to stop both.${RESET}"
 
-# Wait for either server to exit; cleanup trap handles the rest.
-wait
+# Bash 3.2 on macOS has no `wait -n`; poll liveness with `kill -0` so one
+# failed server tears down the other instead of leaving a half-running app.
+# (Don't use `jobs`/`wait $pid` here: the cleanup trap's bare `wait` reaps the
+#  jobs, after which `wait $pid` reports "not a child" and a bogus status 127.)
+status=0
+while true; do
+    for pid in "${PIDS[@]}"; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            # Reap the real exit status before the EXIT trap's bare `wait` runs.
+            if wait "$pid" 2>/dev/null; then status=0; else status=$?; fi
+            if [[ "$status" -ne 0 ]]; then
+                echo "" >&2
+                echo "${RED}[error] A server (pid=$pid) exited with status $status. Stopping the other...${RESET}" >&2
+            else
+                echo "${CYAN}A server (pid=$pid) exited. Stopping the other...${RESET}"
+            fi
+            exit "$status"   # EXIT trap runs cleanup to stop the survivor
+        fi
+    done
+    sleep 1
+done

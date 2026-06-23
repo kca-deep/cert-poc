@@ -29,45 +29,24 @@ from core.pipeline import run_pipeline  # noqa: E402
 
 ROOT       = Path(__file__).resolve().parent.parent
 DATA_PATH  = ROOT / "data" / "정보보호개요_X.md"
-RESULT_DIR = ROOT / "results" / "hybrid"
-
-_LAYER_NAMES = {
-    0: "코드 기반 탐지 (A01·A03·A13·A15·A17·A18)",
-    1: "그룹 LLM (G1·G4·G5)",
-    2: "per-type LLM (A02·A07·A08·A10·A12·A16·A19·A21)",
-}
+RESULT_DIR = ROOT / "results" / "holistic"
 
 
 def _print_event(ev: dict) -> None:
     """ProgressEvent 하나를 사람이 읽기 좋은 콘솔 라인으로 출력한다."""
     kind = ev.get("event")
 
-    if kind == "layer_start":
-        layer = ev["layer"]
-        name  = _LAYER_NAMES.get(layer, "")
-        total = ev.get("totalQ")
-        suffix = f"  ({total}문항)" if total is not None else ""
-        print(f"\n[Layer {layer}] {name}{suffix}")
+    if kind == "start":
+        print(f"\n[holistic 검출] {ev['totalQ']}문항 — 문항당 LLM 1콜")
 
-    elif kind == "q_layer0_done":
+    elif kind == "q_done":
         q = ev["q"]
-        found = sorted(t for t, f in ev["types"].items() if f)
-        if found:
-            print(f"  Q{q:02d}  found={','.join(found)}")
-
-    elif kind == "q_type_done":
-        q    = ev["q"]
-        t    = ev["typeCode"]
-        conf = ev.get("confidence", "")
-        if ev["found"]:
-            tag = f"found  conf={conf}" if conf else "found"
-            print(f"  Q{q:02d}-{t}  {tag}")
-
-    elif kind == "layer_done":
-        print(f"  → [Layer {ev['layer']}] found={ev['found']}")
-
-    elif kind == "postprocess":
-        print(f"\n[후처리 필터] {ev['filtered']}건 제거")
+        findings = ev.get("findings", [])
+        if findings:
+            kinds = ", ".join(f.get("errorType", "?") for f in findings)
+            print(f"  Q{q:02d}  found={len(findings)}건  [{kinds}]")
+        else:
+            print(f"  Q{q:02d}  오류 없음")
 
     elif kind == "done":
         print(f"\n{'='*60}")
@@ -85,7 +64,7 @@ def main():
     parser.add_argument("--q",      type=int, default=None)
     parser.add_argument("--reset",  action="store_true")
     parser.add_argument("--outdir", type=str, default=None)
-    parser.add_argument("--provider", choices=("local", "claude", "clovax"), default=None,
+    parser.add_argument("--provider", choices=("local", "claude"), default=None,
                         help="LLM 공급자 (미지정 시 .env 의 LLM_PROVIDER)")
     args = parser.parse_args()
 

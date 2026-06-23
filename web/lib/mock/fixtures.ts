@@ -7,7 +7,7 @@
  */
 
 import type {
-  AnomalyResult,
+  Finding,
   Question,
   Session,
   SessionDetail,
@@ -60,83 +60,56 @@ const S1_QUESTIONS: Question[] = [
   },
 ];
 
-const S1_RESULTS: AnomalyResult[] = [
+const S1_FINDINGS: Finding[] = [
   {
+    id: "1-0",
     qNumber: 1,
-    typeCode: "A01",
-    layer: 0,
-    found: true,
-    confidence: "high",
-    issues: [
-      {
-        location: "choice_4",
-        original: "④ 가용성(Availability)",
-        suspected: "③번과 ④번 보기가 동일함",
-        suggested: "④ 부인방지(Non-repudiation)",
-      },
-    ],
+    location: "보기 ④",
+    quote: "④ 가용성(Availability)",
+    errorType: "선택지중복",
+    reason: "③번과 ④번 보기가 '가용성(Availability)'으로 동일합니다.",
+    suggestion: "④ 부인방지(Non-repudiation)",
+    confidence: "높음",
   },
   {
+    id: "2-0",
     qNumber: 2,
-    typeCode: "A04",
-    layer: 1,
-    found: true,
-    confidence: "high",
-    issues: [
-      {
-        location: "stem",
-        original: "옳바른 것은?",
-        suspected: "맞춤법 오류",
-        suggested: "올바른 것은?",
-      },
-    ],
+    location: "발문",
+    quote: "옳바른 것은?",
+    errorType: "맞춤법",
+    reason: "'옳바른'은 맞춤법 오류입니다.",
+    suggestion: "올바른 것은?",
+    confidence: "높음",
   },
   {
+    id: "3-0",
     qNumber: 3,
-    typeCode: "A20",
-    layer: 1,
-    found: true,
-    confidence: "medium",
-    issues: [
-      {
-        location: "stem",
-        original: "「개인정보보호법」",
-        suspected: "법령명 표기 — 띄어쓰기 확인 필요",
-        suggested: "「개인정보 보호법」",
-      },
-    ],
+    location: "발문",
+    quote: "「개인정보보호법」",
+    errorType: "띄어쓰기",
+    reason: "법령명 표기상 띄어쓰기 확인이 필요합니다.",
+    suggestion: "「개인정보 보호법」",
+    confidence: "보통",
   },
   {
+    id: "5-0",
     qNumber: 5,
-    typeCode: "A08",
-    layer: 2,
-    found: true,
-    confidence: "low",
-    issues: [
-      {
-        location: "choice_4",
-        original: "④ 가역성",
-        suspected: "정답이 보기에서 과도하게 드러남(난이도 검토)",
-        suggested: null,
-      },
-    ],
-    filtered: true,
-    filterReason: "후처리: 저신뢰 단일 시그널 — 사람 확인 권장",
+    location: "보기 ④",
+    quote: "④ 가역성",
+    errorType: "용어오류",
+    reason: "해시 함수 특성 맥락에서 '가역성' 용어 사용이 어색합니다.",
+    suggestion: "비가역성",
+    confidence: "낮음",
   },
   {
+    id: "6-0",
     qNumber: 6,
-    typeCode: "A09",
-    layer: 1,
-    found: true,
-    confidence: "high",
-    issues: [
-      {
-        location: "stem",
-        original: "정보통신망 이용촉진 및 정보보호등에 관한 법률",
-        suspected: "법령명 오류 — '정보보호등' 띄어쓰기",
-        suggested: "정보통신망 이용촉진 및 정보보호 등에 관한 법률",
-      },
-    ],
+    location: "발문",
+    quote: "정보통신망 이용촉진 및 정보보호등에 관한 법률",
+    errorType: "띄어쓰기",
+    reason: "법령명 '정보보호등'의 '등'을 띄어 써야 합니다.",
+    suggestion: "정보통신망 이용촉진 및 정보보호 등에 관한 법률",
+    confidence: "높음",
   },
 ];
 
@@ -171,21 +144,16 @@ const S3_QUESTIONS: Question[] = Array.from({ length: 25 }, (_, i) => ({
   mdText: `문항 ${i + 1} 분석 대기 중…`,
 }));
 
-const S3_RESULTS: AnomalyResult[] = [
+const S3_FINDINGS: Finding[] = [
   {
+    id: "2-0",
     qNumber: 2,
-    typeCode: "A06",
-    layer: 1,
-    found: true,
-    confidence: "medium",
-    issues: [
-      {
-        location: "stem",
-        original: "할수있다",
-        suspected: "띄어쓰기 오류",
-        suggested: "할 수 있다",
-      },
-    ],
+    location: "발문",
+    quote: "할수있다",
+    errorType: "띄어쓰기",
+    reason: "'할수있다'는 '할 수 있다'로 띄어 써야 합니다.",
+    suggestion: "할 수 있다",
+    confidence: "보통",
   },
 ];
 
@@ -199,7 +167,7 @@ export const SESSIONS: Session[] = [
     fileType: "hwp",
     status: "done",
     questionCount: S1_QUESTIONS.length,
-    foundCount: S1_RESULTS.filter((r) => r.found).length,
+    foundCount: S1_FINDINGS.length,
     elapsedSeconds: 184,
   },
   {
@@ -219,15 +187,15 @@ export const SESSIONS: Session[] = [
     fileType: "pdf",
     status: "running",
     questionCount: S3_QUESTIONS.length,
-    foundCount: S3_RESULTS.filter((r) => r.found).length,
+    foundCount: S3_FINDINGS.length,
     elapsedSeconds: 47,
   },
 ];
 
 const DETAILS: Record<string, SessionDetail> = {
-  s1: { session: SESSIONS[0], questions: S1_QUESTIONS, results: S1_RESULTS },
-  s2: { session: SESSIONS[1], questions: S2_QUESTIONS, results: [] },
-  s3: { session: SESSIONS[2], questions: S3_QUESTIONS, results: S3_RESULTS },
+  s1: { session: SESSIONS[0], questions: S1_QUESTIONS, findings: S1_FINDINGS },
+  s2: { session: SESSIONS[1], questions: S2_QUESTIONS, findings: [] },
+  s3: { session: SESSIONS[2], questions: S3_QUESTIONS, findings: S3_FINDINGS },
 };
 
 /**
@@ -268,62 +236,38 @@ export function deleteMockSession(id: string): void {
 }
 
 /** A small rotation of synthetic findings to attach on completion. */
-const SYNTH_FINDINGS: Omit<AnomalyResult, "qNumber">[] = [
+const SYNTH_FINDINGS: Omit<Finding, "id" | "qNumber">[] = [
   {
-    typeCode: "A04",
-    layer: 1,
-    found: true,
-    confidence: "high",
-    issues: [
-      {
-        location: "stem",
-        original: "옳바른",
-        suspected: "맞춤법 오류",
-        suggested: "올바른",
-      },
-    ],
+    location: "발문",
+    quote: "옳바른",
+    errorType: "맞춤법",
+    reason: "'옳바른'은 맞춤법 오류입니다.",
+    suggestion: "올바른",
+    confidence: "높음",
   },
   {
-    typeCode: "A01",
-    layer: 0,
-    found: true,
-    confidence: "high",
-    issues: [
-      {
-        location: "choice_4",
-        original: "④ 보기 내용",
-        suspected: "③번과 ④번 보기가 동일함",
-        suggested: null,
-      },
-    ],
+    location: "보기 ④",
+    quote: "④ 보기 내용",
+    errorType: "선택지중복",
+    reason: "③번과 ④번 보기가 동일합니다.",
+    suggestion: "보기 내용을 서로 다르게 수정",
+    confidence: "높음",
   },
   {
-    typeCode: "A06",
-    layer: 1,
-    found: true,
-    confidence: "medium",
-    issues: [
-      {
-        location: "stem",
-        original: "할수있다",
-        suspected: "띄어쓰기 오류",
-        suggested: "할 수 있다",
-      },
-    ],
+    location: "발문",
+    quote: "할수있다",
+    errorType: "띄어쓰기",
+    reason: "'할수있다'는 '할 수 있다'로 띄어 써야 합니다.",
+    suggestion: "할 수 있다",
+    confidence: "보통",
   },
   {
-    typeCode: "A08",
-    layer: 2,
-    found: true,
-    confidence: "low",
-    issues: [
-      {
-        location: "stem",
-        original: "문장이 매끄럽지 않음",
-        suspected: "문장 다듬기 필요",
-        suggested: null,
-      },
-    ],
+    location: "지문",
+    quote: "문장이 매끄럽지 않은 부분",
+    errorType: "문법비문",
+    reason: "문장 구조가 어색해 다듬기가 필요합니다.",
+    suggestion: "문장을 자연스럽게 수정",
+    confidence: "낮음",
   },
 ];
 
@@ -341,7 +285,8 @@ export function completeMockSession(
 
   const qs = detail.questions;
   const n = Math.min(foundCount, qs.length);
-  const results: AnomalyResult[] = Array.from({ length: n }, (_, i) => ({
+  const findings: Finding[] = Array.from({ length: n }, (_, i) => ({
+    id: `${qs[i].qNumber}-0`,
     qNumber: qs[i].qNumber,
     ...SYNTH_FINDINGS[i % SYNTH_FINDINGS.length],
   }));
@@ -352,7 +297,7 @@ export function completeMockSession(
     foundCount: n,
     elapsedSeconds,
   };
-  RUNTIME_DETAILS[id] = { ...detail, session: updated, results };
+  RUNTIME_DETAILS[id] = { ...detail, session: updated, findings };
 
   const idx = RUNTIME_SESSIONS.findIndex((s) => s.id === id);
   if (idx >= 0) RUNTIME_SESSIONS[idx] = updated;

@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 
-import type { AnomalyResult, Question } from "@/lib/types";
-import { LAYER_META } from "@/lib/constants";
+import type { Finding, Question } from "@/lib/types";
+import { errorTypeMeta } from "@/lib/constants";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
@@ -11,27 +11,26 @@ type Filter = "all" | "found";
 
 export function QuestionList({
   questions,
-  results,
+  findings,
   selectedQ,
   onSelect,
 }: {
   questions: Question[];
-  results: AnomalyResult[];
+  findings: Finding[];
   selectedQ: number | null;
   onSelect: (q: number) => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
 
   const byQ = useMemo(() => {
-    const map = new Map<number, AnomalyResult[]>();
-    for (const r of results) {
-      if (!r.found) continue;
-      const arr = map.get(r.qNumber) ?? [];
-      arr.push(r);
-      map.set(r.qNumber, arr);
+    const map = new Map<number, Finding[]>();
+    for (const f of findings) {
+      const arr = map.get(f.qNumber) ?? [];
+      arr.push(f);
+      map.set(f.qNumber, arr);
     }
     return map;
-  }, [results]);
+  }, [findings]);
 
   const shown = questions.filter((q) =>
     filter === "found" ? byQ.has(q.qNumber) : true
@@ -60,10 +59,10 @@ export function QuestionList({
       <ScrollArea className="flex-1">
         <ul className="flex flex-col p-1.5">
           {shown.map((q) => {
-            const qResults = byQ.get(q.qNumber) ?? [];
+            const qFindings = byQ.get(q.qNumber) ?? [];
             const active = selectedQ === q.qNumber;
             // 윤문 탐지 건수가 많을수록 문항 배경을 더 짙은 에메랄드로 표시.
-            const tint = rowTint(qResults.length);
+            const tint = rowTint(qFindings.length);
             return (
               <li key={q.qNumber}>
                 <button
@@ -83,16 +82,14 @@ export function QuestionList({
                   <span className="flex-1 truncate text-[13px]">
                     {questionPreview(q.mdText)}
                   </span>
-                  {qResults.length > 0 && (
+                  {qFindings.length > 0 && (
                     <span className="flex shrink-0 items-center gap-0.5">
-                      {qResults.slice(0, 4).map((r, i) => (
+                      {qFindings.slice(0, 4).map((f, i) => (
                         <span
                           key={i}
                           className="size-1.5 rounded-full"
                           style={{
-                            backgroundColor: r.filtered
-                              ? "var(--status-filtered)"
-                              : `var(${LAYER_META[r.layer].varName})`,
+                            backgroundColor: errorTypeMeta(f.errorType).color,
                           }}
                         />
                       ))}

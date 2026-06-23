@@ -11,10 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listReviews, queryKeys, upsertReview } from "@/lib/api";
 import type { ReviewAction } from "@/lib/types";
 
-const reviewKey = (qNumber: number, typeCode: string) =>
-  `${qNumber}:${typeCode}`;
-
-/** 세션의 검수 결정을 `${q}:${type}` → ReviewAction 맵으로 반환. */
+/** 세션의 검수 결정을 findingId → ReviewAction 맵으로 반환. */
 export function useReviews(sessionId: string): Map<string, ReviewAction> {
   const { data } = useQuery({
     queryKey: queryKeys.reviews(sessionId),
@@ -23,7 +20,7 @@ export function useReviews(sessionId: string): Map<string, ReviewAction> {
   });
 
   const map = new Map<string, ReviewAction>();
-  for (const r of data ?? []) map.set(reviewKey(r.qNumber, r.typeCode), r);
+  for (const r of data ?? []) map.set(r.findingId, r);
   return map;
 }
 
@@ -39,9 +36,7 @@ export function useSetReview(sessionId: string) {
       const prev = qc.getQueryData<ReviewAction[]>(key);
       qc.setQueryData<ReviewAction[]>(key, (old) => {
         const list = old ? [...old] : [];
-        const i = list.findIndex(
-          (x) => x.qNumber === r.qNumber && x.typeCode === r.typeCode
-        );
+        const i = list.findIndex((x) => x.findingId === r.findingId);
         if (i >= 0) list[i] = r;
         else list.push(r);
         return list;

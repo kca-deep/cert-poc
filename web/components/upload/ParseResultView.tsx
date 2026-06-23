@@ -12,7 +12,10 @@ import {
 
 import type { ParseResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { LlmProviderToggle } from "@/components/layout/LlmProviderToggle";
+import {
+  LlmProviderToggle,
+  useLlmProvider,
+} from "@/components/layout/LlmProviderToggle";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -38,6 +41,10 @@ export function ParseResultView({
   const warnCount = result.warnings.filter(
     (w) => w.severity === "warning"
   ).length;
+  const { claudeAvailable, configLoaded, localAvailable } = useLlmProvider();
+  const hasAvailableProvider = claudeAvailable || localAvailable;
+  const canStart =
+    configLoaded && hasAvailableProvider && result.questionCount > 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -155,11 +162,17 @@ export function ParseResultView({
           <Button
           size="lg"
           onClick={onStart}
-          disabled={starting || result.questionCount === 0}
+          disabled={starting || !canStart}
           className={cn(starting && "opacity-80")}
         >
             <Sparkles className="size-4" />
-            {starting ? "분석 시작 중…" : "윤문 분석 시작"}
+            {starting
+              ? "분석 시작 중…"
+              : !configLoaded
+                ? "LLM 상태 확인 중…"
+                : hasAvailableProvider
+                ? "윤문 분석 시작"
+                : "LLM 연결 필요"}
           </Button>
         </div>
       </div>

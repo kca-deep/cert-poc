@@ -4,7 +4,6 @@ import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
 import {
-  Cloud,
   FileSpreadsheet,
   FileDown,
   HardDrive,
@@ -118,8 +117,6 @@ export function SessionHeader({
           <span className="inline-flex items-center gap-1 text-foreground">
             {session.provider === "claude" ? (
               <Sparkles className="size-3 text-[var(--layer-1)]" />
-            ) : session.provider === "clovax" ? (
-              <Cloud className="size-3 text-[var(--layer-2)]" />
             ) : (
               <HardDrive className="size-3 text-muted-foreground" />
             )}

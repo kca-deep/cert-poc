@@ -42,20 +42,16 @@ uvicorn main:app --reload --port 8000
 
 ## SSE 이벤트 계약
 
-이벤트 키는 `src/core/events.py` 의 **camelCase** 계약(`totalQ`, `typeCode`,
-`totalFound` …)을 무변환으로 전달한다. (webapp_plan §5 의 snake_case 예시가
-아니라 프론트 타입이 정본.) 시퀀스:
+이벤트 키는 `src/core/events.py` 의 **camelCase** 계약(`totalQ`, `hasError`,
+`findings`, `totalFound` …)을 무변환으로 전달한다. holistic 문항단위 시퀀스:
 
 ```
-layer_start → q_layer0_done* → layer_done   (layer 0)
-layer_start → q_type_done*   → layer_done   (layer 1)
-layer_start → q_type_done*   → layer_done   (layer 2)
-postprocess → done
+start(totalQ) → q_done(q, hasError, findings[])* → done(totalFound, elapsed)
+                                              (오류 시 어느 시점에서나 error)
 ```
 
-> **주의:** `/sessions/{id}/progress` 는 현재 스텁 제너레이터가 그럴듯한 시퀀스를
-> 방출한다. 실 파이프라인 배선 자리는 `api/routers/sessions.py` 의
-> `_progress_source()` 안 `# TODO: replace stub ...` 주석이다.
+> `/sessions/{id}/progress` 는 `progress_hub` 가 백그라운드 스레드에서 소비하는
+> 실 파이프라인(run_pipeline)의 이벤트 버퍼를 SSE 로 tail 구독한다.
 
 ## CORS
 

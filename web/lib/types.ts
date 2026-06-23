@@ -12,23 +12,29 @@ export type SessionStatus =
   | "done"
   | "error";
 
-export type Layer = 0 | 1 | 2;
-export type Confidence = "low" | "medium" | "high";
+/** holistic finding 신뢰도 (LLM 한글 enum). */
+export type Confidence = "높음" | "보통" | "낮음";
 
-export type IssueLocation =
-  | "stem"
-  | "passage"
-  | "choice_1"
-  | "choice_2"
-  | "choice_3"
-  | "choice_4";
+/** holistic error_type 11-enum (prompts/_shared/output_schema.json 미러). */
+export type ErrorType =
+  | "맞춤법"
+  | "띄어쓰기"
+  | "문법비문"
+  | "선택지누락"
+  | "선택지중복"
+  | "용어오류"
+  | "사실오류"
+  | "약어오기"
+  | "정답유출"
+  | "편집표시"
+  | "기타";
 
 export type ReviewActionType = "confirmed" | "rejected" | "pending";
 
 export type FileType = "hwp" | "hwpx" | "pdf";
 
-/** LLM 공급자 — 내부망 로컬 모델(EXAONE 등) vs Claude Haiku vs HyperCLOVA X. */
-export type LlmProvider = "local" | "claude" | "clovax";
+/** LLM 공급자 — 내부망 로컬 모델 vs Claude Haiku. */
+export type LlmProvider = "local" | "claude";
 
 /** GET /config/llm 응답 — 토글 초기 상태/가용성 메타. */
 export interface ProviderMeta {
@@ -45,7 +51,6 @@ export interface ProviderMeta {
 export interface LlmConfig {
   default: LlmProvider;
   claudeConfigured: boolean;
-  clovaxConfigured: boolean;
   providers: ProviderMeta[];
 }
 
@@ -67,47 +72,40 @@ export interface Question {
   mdText: string;
 }
 
-export interface Issue {
-  location: IssueLocation;
-  original: string;
-  suspected: string;
-  suggested?: string | null;
-  extra?: Record<string, unknown>;
-}
-
-export interface AnomalyResult {
+/**
+ * holistic 검출 오류 1건 (src/core/events.py Finding 미러, camelCase).
+ * id 는 세션 내 안정 식별자 "<q>-<index>" — 검수(ReviewAction)의 PK.
+ */
+export interface Finding {
+  id: string;
   qNumber: number;
-  typeCode: string; // e.g. "A04"
-  layer: Layer;
-  found: boolean;
-  confidence?: Confidence;
-  issues: Issue[];
-  filtered?: boolean;
-  filterReason?: string;
+  location: string; // 자유 서술 (예: "발문", "지문", "보기 ②")
+  quote: string; // 문항 원문 인용
+  errorType: ErrorType;
+  reason: string;
+  suggestion: string;
+  confidence: Confidence;
 }
 
 export interface ReviewAction {
-  qNumber: number;
-  typeCode: string;
+  findingId: string;
   reviewer?: string;
   action: ReviewActionType;
   comment?: string;
 }
 
-/** SSE progress union — webapp_plan §5 (consumed in step 6). */
+/** SSE progress union — src/core/events.py 미러 (무변환 소비). */
 export type ProgressEvent =
-  | { event: "layer_start"; layer: Layer; totalQ?: number }
-  | { event: "q_layer0_done"; q: number; types: Record<string, boolean> }
+  | { event: "start"; totalQ: number }
+  | { event: "q_start"; q: number; worker: number }
   | {
-      event: "q_type_done";
-      layer: Layer;
+      event: "q_done";
       q: number;
-      typeCode: string;
-      found: boolean;
-      confidence?: Confidence;
+      hasError: boolean;
+      findings: Finding[];
+      elapsedSeconds?: number;
+      error?: string; // 있으면 검토 실패(타임아웃/파싱오류) — 무오류 완료와 구분
     }
-  | { event: "layer_done"; layer: Layer; found: number }
-  | { event: "postprocess"; filtered: number }
   | { event: "done"; totalFound: number; elapsed: number }
   | { event: "error"; message: string };
 
@@ -117,13 +115,13 @@ export type ProgressEvent =
 export interface SessionDetail {
   session: Session;
   questions: Question[];
-  results: AnomalyResult[];
+  findings: Finding[];
 }
 
-/** A question paired with its detections — convenience for QuestionList/Detail. */
-export interface QuestionWithResults {
+/** A question paired with its findings — convenience for QuestionList/Detail. */
+export interface QuestionWithFindings {
   question: Question;
-  results: AnomalyResult[];
+  findings: Finding[];
 }
 
 /* --- Upload / parse view models --- */

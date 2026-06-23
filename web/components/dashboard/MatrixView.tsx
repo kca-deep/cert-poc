@@ -2,43 +2,41 @@
 
 import { useMemo } from "react";
 
-import { ANOMALY_TYPE_ORDER, typeMeta } from "@/lib/constants";
-import type { AnomalyResult, Question } from "@/lib/types";
+import { ERROR_TYPE_ORDER, errorTypeMeta } from "@/lib/constants";
+import type { ErrorType, Finding, Question } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 export function MatrixView({
   questions,
-  results,
+  findings,
   onSelectQ,
 }: {
   questions: Question[];
-  results: AnomalyResult[];
+  findings: Finding[];
   onSelectQ: (q: number) => void;
 }) {
-  // 담당자 화면은 실제 탐지(found)만 노출한다. 오탐(filtered)은 검수자가 확인할
-  // 대상이 아니라 개발 단계에서 제거할 사안이므로 매트릭스에 표시하지 않는다.
+  // 열 = 실제 탐지된 error_type 만 노출 (안정 표시순서로 정렬).
   const cols = useMemo(() => {
-    const present = new Set(results.filter((r) => r.found).map((r) => r.typeCode));
-    return ANOMALY_TYPE_ORDER.filter((c) => present.has(c));
-  }, [results]);
+    const present = new Set(findings.map((f) => f.errorType));
+    return ERROR_TYPE_ORDER.filter((c) => present.has(c));
+  }, [findings]);
 
+  // 셀 = (문항, error_type) → 해당 finding 존재 여부.
   const cell = useMemo(() => {
-    const map = new Map<string, AnomalyResult>();
-    for (const r of results) {
-      if (r.found) map.set(`${r.qNumber}:${r.typeCode}`, r);
-    }
+    const map = new Map<string, Finding>();
+    for (const f of findings) map.set(`${f.qNumber}:${f.errorType}`, f);
     return map;
-  }, [results]);
+  }, [findings]);
 
   // 문항별 탐지 건수 — 행 히트맵 강도를 결정한다 (많을수록 진함).
   const foundByQ = useMemo(() => {
     const map = new Map<number, number>();
-    for (const r of results) {
-      if (r.found) map.set(r.qNumber, (map.get(r.qNumber) ?? 0) + 1);
+    for (const f of findings) {
+      map.set(f.qNumber, (map.get(f.qNumber) ?? 0) + 1);
     }
     return map;
-  }, [results]);
+  }, [findings]);
 
   if (cols.length === 0) {
     return (
@@ -51,7 +49,18 @@ export function MatrixView({
   return (
     <div className="rounded-md border border-border">
       <div className="flex items-center gap-3 border-b border-border px-3 py-2 text-[11px] text-muted-foreground">
-        <Legend color="var(--status-found)" label="탐지" />
+        <span className="inline-flex items-center gap-1.5">
+          <span className="flex items-center gap-0.5">
+            {cols.slice(0, 5).map((c) => (
+              <span
+                key={c}
+                className="size-2 rounded-full"
+                style={{ backgroundColor: errorTypeMeta(c).color }}
+              />
+            ))}
+          </span>
+          오류 유형별 색
+        </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="flex items-center gap-0.5">
             {[1, 2, 3, 5].map((n) => (
@@ -75,10 +84,16 @@ export function MatrixView({
               {cols.map((c) => (
                 <th
                   key={c}
-                  className="px-1.5 py-2 text-center font-mono font-medium text-muted-foreground"
-                  title={typeMeta(c).label}
+                  className="px-1.5 py-2 text-center font-medium text-muted-foreground"
+                  title={errorTypeMeta(c).label}
                 >
-                  {c}
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="size-1.5 rounded-full"
+                      style={{ backgroundColor: errorTypeMeta(c).color }}
+                    />
+                    {c}
+                  </span>
                 </th>
               ))}
             </tr>
@@ -118,19 +133,19 @@ export function MatrixView({
                     ) : null}
                   </td>
                   {cols.map((c) => {
-                    const r = cell.get(`${q.qNumber}:${c}`);
+                    const f = cell.get(`${q.qNumber}:${c}`);
                     return (
                       <td key={c} className="px-1.5 py-1.5 text-center">
-                        {r ? (
+                        {f ? (
                           <button
                             type="button"
                             onClick={() => onSelectQ(q.qNumber)}
                             className="inline-grid place-items-center"
-                            title={`${c} · ${typeMeta(c).label}`}
+                            title={`${c} · ${errorTypeMeta(c as ErrorType).label}`}
                           >
                             <span
                               className="size-2 rounded-full transition-transform hover:scale-150"
-                              style={{ backgroundColor: "var(--status-found)" }}
+                              style={{ backgroundColor: errorTypeMeta(c).color }}
                             />
                           </button>
                         ) : (
@@ -154,13 +169,4 @@ function rowTint(n: number): string | undefined {
   if (n <= 0) return undefined;
   const pct = n === 1 ? 12 : n === 2 ? 22 : n === 3 ? 32 : n === 4 ? 42 : 52;
   return `color-mix(in oklab, var(--status-found) ${pct}%, transparent)`;
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
-      {label}
-    </span>
-  );
 }

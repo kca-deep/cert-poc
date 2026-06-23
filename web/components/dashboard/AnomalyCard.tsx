@@ -2,17 +2,12 @@
 
 import { ArrowRight, Check, Minus, X } from "lucide-react";
 
-import {
-  CONFIDENCE_LABEL,
-  LOCATION_LABEL,
-  REVIEW_META,
-  typeMeta,
-} from "@/lib/constants";
-import type { AnomalyResult, ReviewActionType } from "@/lib/types";
+import { CONFIDENCE_META, REVIEW_META, errorTypeMeta } from "@/lib/constants";
+import type { Finding, ReviewActionType } from "@/lib/types";
 import { useReviews, useSetReview } from "@/lib/hooks/reviews";
 import { cn } from "@/lib/utils";
 
-import { LayerBadge } from "./LayerBadge";
+import { ErrorTypeChip } from "./ErrorTypeChip";
 
 const ACTIONS: {
   value: ReviewActionType;
@@ -25,17 +20,18 @@ const ACTIONS: {
 
 export function AnomalyCard({
   sessionId,
-  result,
+  finding,
 }: {
   sessionId: string;
-  result: AnomalyResult;
+  finding: Finding;
 }) {
-  const meta = typeMeta(result.typeCode);
+  const meta = errorTypeMeta(finding.errorType);
+  const conf = CONFIDENCE_META[finding.confidence];
 
   // 검수 결정은 서버(DB review_actions)에 영속. (mock 모드는 localStorage 위임)
   const reviews = useReviews(sessionId);
   const setReview = useSetReview(sessionId);
-  const action = reviews.get(`${result.qNumber}:${result.typeCode}`)?.action;
+  const action = reviews.get(finding.id)?.action;
 
   const accent =
     action && action in REVIEW_META
@@ -49,57 +45,47 @@ export function AnomalyCard({
     >
       {/* header */}
       <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-        <span className="font-mono text-xs font-semibold text-foreground">
-          {result.typeCode}
+        <ErrorTypeChip errorType={finding.errorType} />
+        <span className="text-[13px] text-muted-foreground">
+          {finding.location}
         </span>
-        <span className="text-[13px] font-medium text-foreground">
-          {meta.label}
-        </span>
-        <LayerBadge layer={result.layer} />
-        {result.confidence && (
-          <span className="font-mono text-[10px] text-muted-foreground">
-            신뢰도 {CONFIDENCE_LABEL[result.confidence]}
-          </span>
-        )}
-        {result.filtered && (
+        {conf && (
           <span
-            className="rounded-md px-1.5 py-0.5 text-[10px] font-medium"
-            style={{
-              color: "var(--status-filtered)",
-              backgroundColor: "color-mix(in oklab, var(--status-filtered) 14%, transparent)",
-            }}
-            title={result.filterReason}
+            className="ml-auto font-mono text-[11px]"
+            style={{ color: `var(${conf.tone})` }}
           >
-            후처리 보류
+            신뢰도 {conf.label}
           </span>
         )}
       </div>
 
-      {/* issues */}
-      <div className="flex flex-col gap-2.5 px-3 py-2.5">
-        {result.issues.map((issue, i) => (
-          <div key={i} className="text-[13px]">
-            <div className="mb-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-              {LOCATION_LABEL[issue.location]}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs">
-              <span className="rounded bg-[color-mix(in_oklab,var(--status-error)_12%,transparent)] px-1.5 py-0.5 text-[var(--status-error)] line-through decoration-[var(--status-error)]/50">
-                {issue.original}
+      {/* finding body */}
+      <div className="flex flex-col gap-2.5 px-3 py-2.5 text-[13px]">
+        {/* quote → suggestion */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[13px]">
+          {/* 원문(quote): 글씨는 중립색으로 읽기 쉽게, 빨간 좌측바+취소선으로 '틀린 원문' 표시 */}
+          <span className="rounded border-l-2 border-[var(--status-error)] bg-[color-mix(in_oklab,var(--status-error)_10%,transparent)] px-1.5 py-0.5 text-foreground line-through decoration-[var(--status-error)]">
+            {finding.quote}
+          </span>
+          {finding.suggestion && (
+            <>
+              <ArrowRight className="size-3 text-muted-foreground" />
+              {/* 제안(fix): 글씨는 중립색, 유형색은 옅은 배경 틴트로만 (가독성 + 유형 식별) */}
+              <span
+                className="rounded px-1.5 py-0.5 text-foreground"
+                style={{
+                  backgroundColor: `color-mix(in oklab, ${meta.color} 16%, transparent)`,
+                }}
+              >
+                {finding.suggestion}
               </span>
-              {issue.suggested && (
-                <>
-                  <ArrowRight className="size-3 text-muted-foreground" />
-                  <span className="rounded bg-[color-mix(in_oklab,var(--status-found)_14%,transparent)] px-1.5 py-0.5 text-[var(--status-found)]">
-                    {issue.suggested}
-                  </span>
-                </>
-              )}
-            </div>
-            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-              {issue.suspected}
-            </p>
-          </div>
-        ))}
+            </>
+          )}
+        </div>
+        {/* reason */}
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          {finding.reason}
+        </p>
       </div>
 
       {/* review actions — 세그먼트 토글(단일 선택). 테두리/분할선으로 본문과 구분,
@@ -124,13 +110,12 @@ export function AnomalyCard({
                 aria-checked={active}
                 onClick={() =>
                   setReview.mutate({
-                    qNumber: result.qNumber,
-                    typeCode: result.typeCode,
+                    findingId: finding.id,
                     action: value,
                   })
                 }
                 className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 px-2 py-1.5 text-[12px] font-medium transition-colors",
+                  "flex flex-1 items-center justify-center gap-1.5 px-2 py-1.5 text-[13px] font-medium transition-colors",
                   !active &&
                     "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                 )}

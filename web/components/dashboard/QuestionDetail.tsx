@@ -2,7 +2,7 @@
 
 import { FileText } from "lucide-react";
 
-import type { AnomalyResult, Question } from "@/lib/types";
+import type { Finding, Question } from "@/lib/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { AnomalyCard } from "./AnomalyCard";
@@ -10,11 +10,11 @@ import { AnomalyCard } from "./AnomalyCard";
 export function QuestionDetail({
   sessionId,
   question,
-  results,
+  findings,
 }: {
   sessionId: string;
   question: Question | null;
-  results: AnomalyResult[];
+  findings: Finding[];
 }) {
   if (!question) {
     return (
@@ -24,8 +24,6 @@ export function QuestionDetail({
       </div>
     );
   }
-
-  const found = results.filter((r) => r.found);
 
   return (
     <ScrollArea className="h-full">
@@ -38,7 +36,7 @@ export function QuestionDetail({
             </span>
             <span className="h-px flex-1 bg-border" />
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              탐지 {found.length}
+              탐지 {findings.length}
             </span>
           </div>
           <div className="rounded-md border border-border bg-secondary/30 p-3">
@@ -49,14 +47,10 @@ export function QuestionDetail({
         </div>
 
         {/* detections */}
-        {found.length > 0 ? (
+        {findings.length > 0 ? (
           <div className="flex flex-col gap-2">
-            {found.map((r) => (
-              <AnomalyCard
-                key={`${r.qNumber}-${r.typeCode}`}
-                sessionId={sessionId}
-                result={r}
-              />
+            {findings.map((f) => (
+              <AnomalyCard key={f.id} sessionId={sessionId} finding={f} />
             ))}
           </div>
         ) : (

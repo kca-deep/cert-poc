@@ -33,6 +33,14 @@ function delay<T>(value: T, ms = 250): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
+async function responseError(res: Response, fallback: string): Promise<Error> {
+  const detail = await res
+    .json()
+    .then((body) => (typeof body?.detail === "string" ? body.detail : undefined))
+    .catch(() => undefined);
+  return new Error(detail ?? `${fallback}: ${res.status}`);
+}
+
 export async function listSessions(): Promise<Session[]> {
   if (USE_MOCK) return delay(getMockSessions());
 
@@ -63,7 +71,7 @@ export async function parseUpload(file: File): Promise<ParseResult> {
     method: "POST",
     body: form,
   });
-  if (!res.ok) throw new Error(`parseUpload failed: ${res.status}`);
+  if (!res.ok) throw await responseError(res, "parseUpload failed");
   return res.json();
 }
 
@@ -88,7 +96,7 @@ export async function startAnalysis(
       elapsedSeconds: 0,
       provider,
     };
-    addMockSession({ session, questions: parsed.questions, results: [] });
+    addMockSession({ session, questions: parsed.questions, findings: [] });
     return delay(id, 300);
   }
 
@@ -106,7 +114,7 @@ export async function startAnalysis(
       provider,
     }),
   });
-  if (!res.ok) throw new Error(`startAnalysis failed: ${res.status}`);
+  if (!res.ok) throw await responseError(res, "startAnalysis failed");
   const { id } = await res.json();
   return id;
 }
@@ -144,7 +152,7 @@ export async function rerunAnalysis(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ provider }),
   });
-  if (!res.ok) throw new Error(`rerunAnalysis failed: ${res.status}`);
+  if (!res.ok) throw await responseError(res, "rerunAnalysis failed");
 }
 
 /** Available LLM providers + default + whether Claude is configured. */
@@ -153,11 +161,9 @@ export async function getLlmConfig(): Promise<LlmConfig | null> {
     return delay({
       default: "local",
       claudeConfigured: true,
-      clovaxConfigured: true,
       providers: [
         { id: "local", label: "로컬 LLM", model: "exaone-3.5-32b", available: true },
         { id: "claude", label: "Claude Haiku", model: "claude-haiku-4-5", available: true },
-        { id: "clovax", label: "HyperCLOVA X", model: "HCX-005", available: true },
       ],
     });
   }

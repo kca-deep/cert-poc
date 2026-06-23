@@ -16,12 +16,12 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Literal
+from typing import AsyncIterator, Literal
 
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from .. import config, db, progress_hub
@@ -40,7 +40,7 @@ class Session(BaseModel):
     questionCount: int
     foundCount: int
     elapsedSeconds: float | None = None
-    provider: Literal["local", "claude", "clovax"] = "local"
+    provider: Literal["local", "claude"] = "local"
     model: str | None = None  # 분석 시점 실제 모델 id (gpt-oss/exaone 구분)
 
 
@@ -49,39 +49,22 @@ class Question(BaseModel):
     mdText: str
 
 
-class Issue(BaseModel):
-    location: str
-    original: str
-    suspected: str
-    suggested: str | None = None
-    extra: dict[str, Any] | None = None
-
-    @field_validator("extra", mode="before")
-    @classmethod
-    def _coerce_extra(cls, v: Any) -> dict[str, Any] | None:
-        """LLM이 스키마(object)를 어기고 extra를 문자열 등으로 출력해도 조회가
-        500나지 않도록 비-dict는 {'note': ...}로 감싼다(읽기 내성). 빈값은 None."""
-        if v is None or isinstance(v, dict):
-            return v
-        s = str(v).strip()
-        return {"note": s} if s else None
-
-
-class AnomalyResult(BaseModel):
+class Finding(BaseModel):
+    """holistic 검출 오류 1건 (web/lib/types.ts Finding 미러, camelCase)."""
+    id: str
     qNumber: int
-    typeCode: str
-    layer: int
-    found: bool
-    confidence: str | None = None
-    issues: list[Issue] = []
-    filtered: bool | None = None
-    filterReason: str | None = None
+    location: str = ""
+    quote: str = ""
+    errorType: str = "기타"
+    reason: str = ""
+    suggestion: str = ""
+    confidence: str = "보통"
 
 
 class SessionDetail(BaseModel):
     session: Session
     questions: list[Question] = []
-    results: list[AnomalyResult] = []
+    findings: list[Finding] = []
 
 
 class CreateSessionRequest(BaseModel):
@@ -91,7 +74,7 @@ class CreateSessionRequest(BaseModel):
     questionCount: int = 0
     questions: list[Question] = []
     mergedMd: str = ""
-    provider: Literal["local", "claude", "clovax"] | None = None
+    provider: Literal["local", "claude"] | None = None
 
 
 class CreateSessionResponse(BaseModel):
@@ -100,13 +83,12 @@ class CreateSessionResponse(BaseModel):
 
 class RerunRequest(BaseModel):
     """기존 세션을 (가능하면 다른 공급자로) 다시 분석."""
-    provider: Literal["local", "claude", "clovax"] | None = None
+    provider: Literal["local", "claude"] | None = None
 
 
 class ReviewAction(BaseModel):
-    """담당자 검수 결정 (web/lib/types.ts ReviewAction 미러)."""
-    qNumber: int
-    typeCode: str
+    """담당자 검수 결정 (web/lib/types.ts ReviewAction 미러, finding 단위)."""
+    findingId: str
     action: Literal["confirmed", "rejected", "pending"]
     comment: str | None = None
 
@@ -129,7 +111,7 @@ def _preflight_provider(provider: str) -> str | None:
       응답 없으면 503.
     - claude: 외부 핑 대신 ANTHROPIC_API_KEY 존재로 게이트, CLAUDE_MODEL 반환.
     """
-    from config import build_config, claude_configured, clovax_configured
+    from config import build_config, claude_configured
     if provider == "claude":
         if not claude_configured():
             raise HTTPException(
@@ -137,13 +119,6 @@ def _preflight_provider(provider: str) -> str | None:
                 detail="Claude API 키(ANTHROPIC_API_KEY)가 설정되지 않았습니다.",
             )
         return build_config(provider).get("claude_model")
-    if provider == "clovax":
-        if not clovax_configured():
-            raise HTTPException(
-                status_code=503,
-                detail="HyperCLOVA X API 키(CLOVASTUDIO_API_KEY)가 설정되지 않았습니다.",
-            )
-        return build_config(provider).get("clova_model")
     from core.pipeline import preflight_local
     cfg = build_config(provider)
     msg = preflight_local(cfg)  # 성공 시 cfg["model"] 에 채택 모델 주입
@@ -167,14 +142,14 @@ async def get_session(session_id: str) -> SessionDetail:
     return SessionDetail(
         session=Session(**detail["session"]),
         questions=[Question(**q) for q in detail["questions"]],
-        results=[AnomalyResult(**r) for r in detail["results"]],
+        findings=[Finding(**f) for f in detail["findings"]],
     )
 
 
 # ── DELETE /sessions/{id} ────────────────────────────────────────
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str) -> dict[str, bool]:
-    """세션 1건 삭제 (questions/anomaly_results/review_actions CASCADE). 없으면 404."""
+    """세션 1건 삭제 (questions/findings/review_actions CASCADE). 없으면 404."""
     if not db.delete_session(session_id):
         raise HTTPException(status_code=404, detail="session not found")
     return {"ok": True}
@@ -251,7 +226,7 @@ async def upsert_review(session_id: str, req: ReviewAction) -> dict[str, bool]:
     """검수 결정 1건 저장/갱신 (확인·반려·보류)."""
     if db.get_status(session_id) is None:
         raise HTTPException(status_code=404, detail="session not found")
-    db.upsert_review(session_id, req.qNumber, req.typeCode,
+    db.upsert_review(session_id, req.findingId,
                      req.action, req.comment, _now_iso())
     return {"ok": True}
 

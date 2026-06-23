@@ -128,24 +128,22 @@ cert-poc/
 ├── data/                        ← 시험지 파일 (HWP, MD)
 │
 ├── prompts/
-│   ├── _shared/                 ← 공통 지침
-│   ├── per-type/                ← 유형별 전용 AI 지시문 (A01~A20)
-│   └── hybrid/                  ← 묶음 검사용 AI 지시문 (G1, G4, G5)
+│   ├── holistic/                ← 검출 코어 (review.md + system.md)
+│   └── _shared/                 ← output_schema.json (11-enum findings)
 │
 ├── src/
 │   ├── hwp_parser.py            ← HWP → 텍스트 변환
-│   ├── code_checker.py          ← 1단계: 규칙 기반 검사
-│   ├── hybrid_run.py            ← 전체 파이프라인 실행
-│   ├── group_run.py             ← 2단계: 묶음 AI 검사
-│   ├── full_run.py              ← 기존 유형별 AI 검사 (비교용)
-│   └── compare_results.py       ← 결과 비교 분석
+│   ├── cli.py                   ← 파이프라인 CLI 어댑터
+│   ├── hybrid_run.py            ← back-compat shim (cli.main 호출)
+│   └── core/
+│       ├── pipeline.py          ← holistic 검출 로직 (단일 소스)
+│       ├── events.py            ← 진행 이벤트 계약 (web 미러)
+│       └── parsing.py           ← 입력 → '## N.' Markdown
 │
 └── results/
-    └── hybrid_v2/
-        ├── layer0/              ← 1단계 규칙 검사 결과
-        ├── layer1/              ← 2단계 묶음 검사 결과
-        ├── layer2/              ← 3단계 정밀 검사 결과
-        └── merged.json          ← 최종 병합 결과
+    └── holistic/
+        ├── Q01.json …           ← 문항별 검출 결과 (캐시/재개)
+        └── results.json         ← 최종 집계
 ```
 
 ---
@@ -162,14 +160,14 @@ python src/hwp_parser.py "data/시험지파일.hwp"
 ### 2. AI 검수 실행
 
 ```bash
-python src/hybrid_run.py --input "data/시험지파일.md"
-# → results/hybrid/ 폴더에 결과 저장
+python src/cli.py --input "data/시험지파일.md"
+# → results/holistic/ 폴더에 결과 저장 (문항당 holistic LLM 1콜)
 ```
 
 ### 3. 특정 문항만 검사
 
 ```bash
-python src/hybrid_run.py --input "data/시험지파일.md" --q 13
+python src/cli.py --input "data/시험지파일.md" --q 13
 # → 13번 문항만 검사
 ```
 
@@ -179,13 +177,15 @@ python src/hybrid_run.py --input "data/시험지파일.md" --q 13
 
 ```powershell
 .\run-app.ps1                       # API :8000 + WEB :3000 기동 (각 새 창)
-.\run-app.ps1 -Install              # 최초 1회: 의존성 설치 후 기동
+.\run-app.ps1 -Install              # 최초 1회: .venv 생성 + 의존성 설치 후 기동
 .\run-app.ps1 -ApiPort 8001 -WebPort 3001   # 포트 변경
 .\run-app.ps1 -NoReload             # uvicorn 자동 리로드 끔
 ```
 
 - API: `http://localhost:8000` (health `/health`, 문서 `/docs`)
 - WEB: `http://localhost:3000` (→ `/sessions`)
+- 백엔드 의존성은 `run-app.sh --install` / `run-app.ps1 -Install` 이 만드는 `.venv`
+  안에 설치된다. Homebrew Python(PEP 668) 환경에서도 시스템 패키지를 건드리지 않는다.
 - 프론트의 실서버 연결은 `web/.env.local` 의 `NEXT_PUBLIC_API_BASE` 로 제어한다
   (해당 파일을 지우거나 `NEXT_PUBLIC_USE_MOCK=true` 로 두면 목업 모드).
 - 종료: 각 서버 창에서 `Ctrl+C`.

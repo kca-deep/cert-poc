@@ -95,7 +95,7 @@
   --secondary: #2a2a2a;
   --secondary-foreground: #ededed;
   --muted: #232323;
-  --muted-foreground: #8f8f8f;    /* muted helper text on dark */
+  --muted-foreground: #a8a8a8;    /* muted helper text on dark (5.1→6.8:1 대비 향상) */
   --accent: #2a2a2a;
   --accent-foreground: #ededed;
   --destructive: #f5503c;         /* tomato, lifted for dark legibility */
@@ -128,7 +128,7 @@
   /* Layer badges (plan §2), re-tuned for the dark surface */
   --layer-0: #3a3a3a;             /* neutral grey chip — code layer */
   --layer-0-foreground: #ededed;
-  --layer-1: #8170e6;             /* violet, lifted from #644fc1 */
+  --layer-1: #9a8cf0;             /* violet, 텍스트 대비 위해 상향(4.2→5.8:1) */
   --layer-1-foreground: #ffffff;
   --layer-2: #5b8bff;             /* indigo, lifted from #054cff */
   --layer-2-foreground: #ffffff;
@@ -136,7 +136,7 @@
   /* Status — color expresses state only (plan §6) */
   --status-found: #3ecf8e;        /* emerald — detected/confirmed */
   --status-error: #f5503c;        /* tomato — error/rejected */
-  --status-hold: #8170e6;         /* violet — pending */
+  --status-hold: #9a8cf0;         /* violet — pending (텍스트 대비 상향) */
   --status-filtered: #ffdb13;     /* yellow — postprocess-filtered */
 }
 

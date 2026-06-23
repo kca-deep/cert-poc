@@ -5,9 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 프로젝트 개요
 
 자격검정 **문제지(시험지) 오류 자동 탐지** PoC. HWP/HWPX/PDF 문제지를 업로드하면
-20종 오류 유형(A01~A21)을 3레이어 하이브리드 파이프라인으로 검출하고, 검수자가
-웹에서 확인/확정/반려할 수 있다. **내부망(폐쇄망) 프로덕션**을 전제로 하며, 외부
+오류를 **holistic 단일 LLM 호출**(문항당 1콜)로 검출하고, 검수자가 웹에서
+확인/확정/반려할 수 있다. **내부망(폐쇄망) 프로덕션**을 전제로 하며, 외부
 API(Claude) 의존성은 선택적 토글이다.
+
+> 이력: 과거 3레이어 하이브리드(L0 규칙 + L1 그룹 + L2 per-type, 문항당 ~11콜,
+> A01~A21 분류체계)를 cert-harness 외과적 v2 검출 코어로 **전면 대체**했다
+> (문항당 1콜, 11-enum error_type, llama.cpp native grammar 출력강제).
+> 경위는 `docs/harness_migration_plan.md`.
 
 ## 아키텍처 (큰 그림)
 
@@ -30,25 +35,28 @@ web/ (Next.js :3000)  ──HTTP/SSE──▶  api/ (FastAPI :8000)  ──impor
 - `src/hybrid_run.py`는 `cli.main()`을 호출하는 back-compat shim일 뿐
 
 `src/core/__init__.py`를 import 하면 `src/`가 `sys.path`에 등록되므로, core 모듈은
-평면 모듈(`config`, `code_checker`, `postprocess`)을 그대로 import 한다. core를 먼저
-import 하는 순서를 깨지 말 것.
+평면 모듈(`config`, `hwp_parser` 등)을 그대로 import 한다. core를 먼저 import 하는
+순서를 깨지 말 것.
 
 이벤트 스키마(`src/core/events.py`)는 camelCase이며 `web/lib/types.ts`가 이를 그대로
-미러링한다. 한쪽을 바꾸면 반드시 양쪽을 함께 맞춘다.
+미러링한다. **한쪽을 바꾸면 반드시 양쪽을 함께 맞춘다.** 이벤트 종류:
+`start(totalQ)` · `q_done(q, hasError, findings[])` · `done(totalFound, elapsed)` · `error`.
+`findings[]` 항목도 camelCase: `{id, location, quote, errorType, reason, suggestion, confidence}`.
 
-### 3레이어 탐지 파이프라인
+### holistic 검출 파이프라인
 
-입력 흐름: `HWP/HWPX/PDF → (kordoc) Markdown → 문항 추출(## N.) → Layer 0/1/2 → 후처리 → merged_filtered.json`
+입력 흐름: `HWP/HWPX/PDF → (kordoc) Markdown → 문항 추출(## N.) → 문항별 holistic LLM 1콜(grammar 강제) → findings[] 정규화 → results.json`
 
-| Layer | 방식 | 유형 | 비용 |
-|-------|------|------|------|
-| **0** | 규칙/정규식 (`src/code_checker.py`) | A01, A03, A13, A15, A17, A18 | LLM 0회 |
-| **1** | 그룹 LLM (`prompts/hybrid/`) | G1[A04,A05,A06], G4[A09,A20], G5[A11,A14] | 그룹당 1회 |
-| **2** | per-type LLM (`prompts/per-type/`) | A02, A07, A08, A10, A12, A16, A19, A21 | 유형당 1회 |
-
-이후 `src/postprocess.py`의 후처리 필터(F1~F5)가 알려진 오탐을 제거한다(예: A06↔A02
-경계, 뉴스 기사 `|` 기호 등). 레이어/그룹 구성은 `pipeline.py` 상단 `LAYER0_TYPES`,
-`LAYER1_GROUPS`, `LAYER2_TYPES`에 정의돼 있다.
+- **검출 코어**: `prompts/holistic/review.md`(INSTRUCTION + `{{QUESTION_BLOCK}}`)
+  + `prompts/_shared/output_schema.json`(11-enum findings 스키마). 레이어/규칙층/
+  후처리 F필터는 **존재하지 않는다**.
+- **출력 강제**: `pipeline.py::call_lm_studio()`가 `response_format=json_schema`를
+  extra_body 로 요청 본문 최상위에 합류시킨다 → 서버(llama.cpp)가 GBNF 로 변환·강제.
+  grammar 미지원 백엔드(Ollama/claude 등)는 `_extract_json()` 관용 파서로 폴백.
+- **error_type 11-enum**: 맞춤법·띄어쓰기·문법비문·선택지누락·선택지중복·용어오류·
+  사실오류·약어오기·정답유출·편집표시·기타.
+- **운영조건**(cert-harness Run E 확정): temp=0, max_tokens=8000, 서버
+  `--reasoning-budget 6000 --parallel 3`. 병렬은 `LLM_PARALLEL_WORKERS`(클라이언트)로.
 
 ### LLM 공급자 토글 (`src/config.py`)
 
@@ -69,15 +77,20 @@ import 하는 순서를 깨지 말 것.
 
 ### 프롬프트 (`prompts/`)
 
-각 유형은 YAML frontmatter + 역할/정의/경계/체크절차/few-shot으로 구성되고
-`{{QUESTION_BLOCK}}` 자리에 문항 텍스트가 치환된다. `per-type/`(개별), `grouped/`(실험),
-`hybrid/`(최종 G1·G4·G5), `_shared/`(공통 preamble·output_schema.json).
-**few-shot 예시는 합성 예시여야 한다 — 특정 차수 실제 문항을 넣지 말 것.**
+- `holistic/review.md` — 최종 검출 코어(INSTRUCTION + 분류 결정규칙 + quote 최소성),
+  `{{QUESTION_BLOCK}}` 자리에 문항 텍스트 치환.
+- `holistic/system.md` — holistic 검수자 시스템 프리앰블.
+- `_shared/output_schema.json` — 11-enum findings 스키마(grammar 강제용, 메타키는
+  `config.holistic_schema()`가 전송 전 제거).
+
+**예시는 합성 예시여야 한다 — 특정 차수 실제 문항을 넣지 말 것.**
 
 ### 데이터 영속화 (`api/db.py`)
 
-표준 라이브러리 SQLite(ORM 없음). 테이블: `sessions`, `questions`, `anomaly_results`,
-`review_actions`(검수 결과, 복합 PK upsert). DB·결과 JSON은 `results/api/` 아래.
+표준 라이브러리 SQLite(ORM 없음). 테이블: `sessions`, `questions`, `findings`
+(오류 1건/행, PK `finding_id` = `"<q>-<index>"`), `review_actions`(검수 결과,
+PK `finding_id` upsert). DB·결과 JSON은 `results/api/` 아래. 과거 A코드 데이터는
+컷오버(단절) — `db._migrate()`가 레거시 `anomaly_results`·구 `review_actions`를 폐기.
 
 ## 개발 명령
 
@@ -112,7 +125,9 @@ python src/hwp_parser.py "data/파일.hwp"                # HWP→MD 단독 파�
 ```env
 LLM_PROVIDER=local                 # local | claude
 LOCAL_BASE_URL=http://127.0.0.1:8080/v1
-LLM_MODEL=openai/gpt-oss-20b       # 축약형 'gpt-oss-20b' 금지(garbage) — 반드시 풀네임
+LLM_MODEL=unsloth/gemma-4-26B-A4B-it-GGUF:UD-Q4_K_XL  # holistic 프로덕션 모델
+LLM_TEMPERATURE=0                  # holistic 결정성 (서버는 --reasoning-budget 6000)
+LLM_MAX_TOKENS=8000
 LLM_MAX_RETRIES=1                  # OpenAI 클라이언트 내부 재시도와 곱해지므로 주의
 CLAUDE_MODEL=claude-haiku-4-5
 ANTHROPIC_API_KEY=sk-ant-...       # provider=claude 일 때만
@@ -124,11 +139,15 @@ CLOVASTUDIO_MODEL=HCX-005          # HCX-005 | HCX-007 | HCX-DASH-002 ...
 
 ## 알려진 함정 (재발 방지)
 
-- **gpt-oss `>` 블록쿼트 버그**: 마크다운 블록쿼트가 garbage/무한 reasoning을 유발 →
-  `pipeline.py::sanitize()`가 `'(지문)'`으로 치환한다. 제거하지 말 것.
+- **grammar 출력강제는 llama.cpp 가정**: `response_format=json_schema`는 llama.cpp
+  native grammar(GBNF) 백엔드에서만 안전. Ollama `format=schema` 단일호출은 붕괴
+  이력이 있어 `_GRAMMAR_BACKENDS`(=`openai` 프로브)일 때만 전송하고 나머지는 폴백 파서.
+- **서버 thinking 폭주 방지**: gemma4 는 `--reasoning-budget 6000` 없이 기동하면 일부
+  문항에서 thinking 이 폭주해 JSON 이 잘린다. 서버 기동옵션을 빠뜨리지 말 것.
+- **gpt-oss `>` 블록쿼트 버그**: `pipeline.py::sanitize()`가 블록쿼트를 `'(지문)'`으로
+  치환한다(폴백 gpt-oss 모델 보호용). 제거하지 말 것 — gemma4 에는 영향 없음.
 - **OpenAI 클라이언트 내부 재시도**: 기본 `max_retries=2`가 우리 재시도와 곱해져 과다
   호출. 클라이언트 생성 시 `max_retries=0`을 명시해야 한다.
-- **LM Studio 모델 ID**: 반드시 `openai/gpt-oss-20b` 풀네임.
 - **KV 캐시 격리**: 문항 간 오염 방지로 `LLM_CACHE_PROMPT=false`, slot 격리 옵션 유지.
 - **HWP 파서 Windows 호환**: node/kordoc 탐색이 리눅스 전용이면 Win에서 실패 →
   `shutil.which` + npx 캐시 glob으로 탐색.
@@ -139,6 +158,7 @@ CLOVASTUDIO_MODEL=HCX-005          # HCX-005 | HCX-007 | HCX-DASH-002 ...
 
 ## 참고 문서
 
-- `docs/hybrid_pipeline_개발보고서.md` — 파이프라인 진화·실험 결과(per-type→grouped→hybrid)
+- `docs/harness_migration_plan.md` — holistic 전면 대체 전환 계획(설계·근거·리스크)
+- `docs/hybrid_pipeline_개발보고서.md` — (이력) 3레이어 진화·실험 결과
 - `docs/webapp_plan.md` — 웹앱 전체 설계(스택·엔드포인트·DB·UI)
 - `prompts/README.md` — 프롬프트 카탈로그
